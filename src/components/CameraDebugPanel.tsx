@@ -42,7 +42,7 @@ export function CameraDebugPanel({
         </figure>
         <figure className="wide-debug">
           <canvas ref={contourCanvasRef} width={CAMERA_WIDTH} height={CAMERA_HEIGHT} />
-          <figcaption>Contour, convex hull, fingertip</figcaption>
+          <figcaption>Face exclusion, contour, convex hull, fingertip</figcaption>
         </figure>
       </div>
 

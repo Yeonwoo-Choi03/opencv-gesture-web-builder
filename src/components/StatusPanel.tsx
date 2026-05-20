@@ -41,6 +41,10 @@ export function StatusPanel({
           <dd>{tracking.handCount}</dd>
         </div>
         <div>
+          <dt>Face</dt>
+          <dd>{tracking.faceDetected ? 'Excluded' : 'Not detected'}</dd>
+        </div>
+        <div>
           <dt>Dragging</dt>
           <dd>{dragging ? 'Active' : 'Inactive'}</dd>
         </div>
