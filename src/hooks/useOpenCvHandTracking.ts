@@ -80,6 +80,29 @@ function cameraPointToViewport(point: CursorPoint) {
   };
 }
 
+function isHeadLikeContour(cv: any, contour: any, area: number, rect: any) {
+  const hull = new cv.Mat();
+  cv.convexHull(contour, hull, false, true);
+  const hullArea = cv.contourArea(hull);
+  hull.delete();
+
+  const aspectRatio = rect.width / Math.max(1, rect.height);
+  const extent = area / Math.max(1, rect.width * rect.height);
+  const solidity = area / Math.max(1, hullArea);
+  const centerY = rect.y + rect.height / 2;
+  const head = HAND_DETECTION.headReject;
+
+  // A face/head skin blob tends to be a large, compact oval in the upper frame.
+  return (
+    area >= head.minArea &&
+    centerY <= CAMERA_HEIGHT * head.upperFrameRatio &&
+    aspectRatio >= head.minAspectRatio &&
+    aspectRatio <= head.maxAspectRatio &&
+    solidity >= head.minSolidity &&
+    extent >= head.minExtent
+  );
+}
+
 export function useOpenCvHandTracking() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const maskCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -215,6 +238,11 @@ export function useOpenCvHandTracking() {
       }
 
       const rect = cv.boundingRect(contour);
+      if (isHeadLikeContour(cv, contour, area, rect)) {
+        contour.delete();
+        continue;
+      }
+
       const center = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
       const motionRoi = runtime.movingSkinMask.roi(rect);
       const motionRatio = cv.countNonZero(motionRoi) / Math.max(1, rect.width * rect.height);

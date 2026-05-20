@@ -11,6 +11,14 @@ export const HAND_DETECTION = {
   motionThreshold: 16,
   minMotionRatio: 0.012,
   trackingMaxDistance: 120,
+  headReject: {
+    minArea: 4200,
+    minAspectRatio: 0.52,
+    maxAspectRatio: 1.45,
+    minSolidity: 0.86,
+    minExtent: 0.56,
+    upperFrameRatio: 0.58,
+  },
   // YCrCb skin threshold. Adjust Cr/Cb ranges for the room lighting.
   yCrCbLower: [0, 133, 77, 0],
   yCrCbUpper: [255, 173, 127, 255],
