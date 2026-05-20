@@ -29,6 +29,10 @@ export function StatusPanel({ selectedElement, tracking, gestureState, dwellProg
           <dd>{gestureState}</dd>
         </div>
         <div>
+          <dt>Hands</dt>
+          <dd>{tracking.handCount}</dd>
+        </div>
+        <div>
           <dt>Dragging</dt>
           <dd>{dragging ? 'Active' : 'Inactive'}</dd>
         </div>

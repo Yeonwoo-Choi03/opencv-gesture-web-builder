@@ -32,6 +32,14 @@ export function GestureBuilderPage() {
   const [gestureState, setGestureState] = useState('Waiting');
   const hoverRef = useRef<{ target: string; point: CursorPoint; startedAt: number } | null>(null);
   const lastClickAtRef = useRef(0);
+  const scaleRef = useRef<{
+    elementId: string;
+    startDistance: number;
+    startWidth: number;
+    startHeight: number;
+    centerX: number;
+    centerY: number;
+  } | null>(null);
 
   const selectedElement = useMemo(
     () => elements.find((element) => element.id === selectedId),
@@ -121,6 +129,51 @@ export function GestureBuilderPage() {
 
   useEffect(() => {
     const cursor = tracking.cursor;
+
+    if (selectedElement && tracking.handPoints.length >= 2) {
+      const canvasRect = canvasRef.current?.getBoundingClientRect();
+      const currentDistance = distance(tracking.handPoints[0], tracking.handPoints[1]);
+
+      if (canvasRect && currentDistance > 40) {
+        setDraggingId(null);
+        hoverRef.current = null;
+        setDwellProgress(0);
+
+        if (!scaleRef.current || scaleRef.current.elementId !== selectedElement.id) {
+          scaleRef.current = {
+            elementId: selectedElement.id,
+            startDistance: currentDistance,
+            startWidth: selectedElement.width,
+            startHeight: selectedElement.height,
+            centerX: selectedElement.x + selectedElement.width / 2,
+            centerY: selectedElement.y + selectedElement.height / 2,
+          };
+        }
+
+        const scale = clamp(currentDistance / scaleRef.current.startDistance, 0.45, 2.4);
+        const nextWidth = clamp(scaleRef.current.startWidth * scale, 60, canvasRect.width - 8);
+        const nextHeight = clamp(scaleRef.current.startHeight * scale, 36, canvasRect.height - 8);
+
+        setElements((current) =>
+          current.map((element) =>
+            element.id === selectedElement.id
+              ? {
+                  ...element,
+                  width: nextWidth,
+                  height: nextHeight,
+                  x: clamp(scaleRef.current!.centerX - nextWidth / 2, 4, canvasRect.width - nextWidth - 4),
+                  y: clamp(scaleRef.current!.centerY - nextHeight / 2, 4, canvasRect.height - nextHeight - 4),
+                }
+              : element,
+          ),
+        );
+        setGestureState('Scaling / spread or pinch hands');
+        return;
+      }
+    } else {
+      scaleRef.current = null;
+    }
+
     if (!cursor) {
       hoverRef.current = null;
       setDwellProgress(0);
@@ -184,7 +237,17 @@ export function GestureBuilderPage() {
       setDwellProgress(0);
       runAction(target, cursor);
     }
-  }, [dragOffset.x, dragOffset.y, draggingId, elements, runAction, tracking.cameraStatus, tracking.cursor]);
+  }, [
+    dragOffset.x,
+    dragOffset.y,
+    draggingId,
+    elements,
+    runAction,
+    selectedElement,
+    tracking.cameraStatus,
+    tracking.cursor,
+    tracking.handPoints,
+  ]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {

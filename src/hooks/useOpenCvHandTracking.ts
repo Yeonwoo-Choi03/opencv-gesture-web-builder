@@ -9,6 +9,8 @@ export interface HandTrackingState {
   cameraStatus: CameraStatus;
   cameraError: string;
   handDetected: boolean;
+  handCount: number;
+  handPoints: CursorPoint[];
   contourDetected: boolean;
   fingertipEstimated: boolean;
   cursor: CursorPoint | null;
@@ -71,6 +73,13 @@ function average(points: CursorPoint[]) {
   return { x: sum.x / points.length, y: sum.y / points.length };
 }
 
+function cameraPointToViewport(point: CursorPoint) {
+  return {
+    x: clamp((point.x / CAMERA_WIDTH) * window.innerWidth, 0, window.innerWidth),
+    y: clamp((point.y / CAMERA_HEIGHT) * window.innerHeight, 0, window.innerHeight),
+  };
+}
+
 export function useOpenCvHandTracking() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const maskCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -87,6 +96,8 @@ export function useOpenCvHandTracking() {
     cameraStatus: 'idle',
     cameraError: '',
     handDetected: false,
+    handCount: 0,
+    handPoints: [],
     contourDetected: false,
     fingertipEstimated: false,
     cursor: null,
@@ -194,9 +205,7 @@ export function useOpenCvHandTracking() {
 
     cv.findContours(runtime.cleanedMask, runtime.contours, runtime.hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
 
-    let bestContour: any = null;
-    let bestScore = Number.NEGATIVE_INFINITY;
-    let bestCenter: CursorPoint | null = null;
+    const candidates: Array<{ contour: any; score: number; center: CursorPoint; area: number }> = [];
     for (let i = 0; i < runtime.contours.size(); i += 1) {
       const contour = runtime.contours.get(i);
       const area = cv.contourArea(contour);
@@ -222,22 +231,32 @@ export function useOpenCvHandTracking() {
       }
 
       const score = motionRatio * 10000 + area * 0.02 - (lastHand ? distFromLast * 8 : 0);
-      if (score > bestScore) {
-        if (bestContour) bestContour.delete();
-        bestScore = score;
-        bestCenter = center;
-        bestContour = contour;
-      } else {
-        contour.delete();
-      }
+      candidates.push({ contour, score, center, area });
     }
+
+    candidates.sort((a, b) => b.score - a.score);
+    const selectedCandidates = candidates.slice(0, 2);
+    const bestCandidate = selectedCandidates[0];
+    const handPoints = selectedCandidates.map((candidate) => cameraPointToViewport(candidate.center));
 
     const debug = cv.Mat.zeros(CAMERA_HEIGHT, CAMERA_WIDTH, cv.CV_8UC4);
     let cursor: CursorPoint | null = null;
     let fingertipEstimated = false;
     let contourDetected = false;
 
-    if (bestContour) {
+    selectedCandidates.forEach((candidate, index) => {
+      const point = new cv.Point(candidate.center.x, candidate.center.y);
+      cv.circle(
+        debug,
+        point,
+        6,
+        index === 0 ? new cv.Scalar(14, 165, 233, 255) : new cv.Scalar(168, 85, 247, 255),
+        -1,
+      );
+    });
+
+    if (bestCandidate) {
+      const bestContour = bestCandidate.contour;
       contourDetected = true;
       const contourList = new cv.MatVector();
       contourList.push_back(bestContour);
@@ -267,8 +286,8 @@ export function useOpenCvHandTracking() {
 
         // Convert camera coordinates to viewport coordinates for the virtual cursor.
         const viewportPoint = {
-          x: clamp((tipX / CAMERA_WIDTH) * window.innerWidth, 0, window.innerWidth),
-          y: clamp((tipY / CAMERA_HEIGHT) * window.innerHeight, 0, window.innerHeight),
+          x: cameraPointToViewport({ x: tipX, y: tipY }).x,
+          y: cameraPointToViewport({ x: tipX, y: tipY }).y,
         };
 
         smoothedPointsRef.current = [...smoothedPointsRef.current, viewportPoint].slice(
@@ -276,7 +295,7 @@ export function useOpenCvHandTracking() {
         );
         cursor = average(smoothedPointsRef.current);
         lastCursorRef.current = cursor;
-        lastHandCameraRef.current = bestCenter;
+        lastHandCameraRef.current = bestCandidate.center;
         lastSeenAtRef.current = performance.now();
       }
 
@@ -285,7 +304,7 @@ export function useOpenCvHandTracking() {
       contourList.delete();
     }
 
-    if (bestContour) bestContour.delete();
+    candidates.forEach((candidate) => candidate.contour.delete());
 
     const now = performance.now();
     const withinGrace = now - lastSeenAtRef.current <= HAND_DETECTION.noHandGraceMs;
@@ -306,6 +325,8 @@ export function useOpenCvHandTracking() {
       cameraStatus: 'camera-on',
       cameraError: '',
       handDetected: contourDetected || withinGrace,
+      handCount: handPoints.length,
+      handPoints,
       contourDetected,
       fingertipEstimated,
       cursor,
