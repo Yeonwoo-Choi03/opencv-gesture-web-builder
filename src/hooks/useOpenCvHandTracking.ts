@@ -26,6 +26,7 @@ interface CvRuntime {
   hsvMask: any;
   skinMask: any;
   motionMask: any;
+  movingSkinMask: any;
   cleanedMask: any;
   hierarchy: any;
   contours: any;
@@ -57,7 +58,7 @@ function loadOpenCv() {
       window.cv = window.cv || {};
       window.cv.onRuntimeInitialized = () => resolve();
     };
-    script.onerror = () => reject(new Error('OpenCV.js를 불러오지 못했습니다.'));
+    script.onerror = () => reject(new Error('OpenCV.js failed to load.'));
     document.body.appendChild(script);
   });
 }
@@ -79,6 +80,7 @@ export function useOpenCvHandTracking() {
   const animationRef = useRef<number | null>(null);
   const smoothedPointsRef = useRef<CursorPoint[]>([]);
   const lastCursorRef = useRef<CursorPoint | null>(null);
+  const lastHandCameraRef = useRef<CursorPoint | null>(null);
   const lastSeenAtRef = useRef(0);
 
   const [state, setState] = useState<HandTrackingState>({
@@ -114,7 +116,8 @@ export function useOpenCvHandTracking() {
       ycrcb: new cv.Mat(),
       hsvMask: new cv.Mat(),
       skinMask: new cv.Mat(),
-      motionMask: new cv.Mat(),
+      motionMask: new cv.Mat(CAMERA_HEIGHT, CAMERA_WIDTH, cv.CV_8UC1),
+      movingSkinMask: new cv.Mat(CAMERA_HEIGHT, CAMERA_WIDTH, cv.CV_8UC1),
       cleanedMask: new cv.Mat(),
       hierarchy: new cv.Mat(),
       contours: new cv.MatVector(),
@@ -155,8 +158,13 @@ export function useOpenCvHandTracking() {
     cv.inRange(runtime.hsv, hsvLower, hsvUpper, runtime.hsvMask);
     cv.inRange(runtime.ycrcb, skinLower, skinUpper, runtime.skinMask);
     cv.bitwise_and(runtime.hsvMask, runtime.skinMask, runtime.cleanedMask);
+    cv.GaussianBlur(runtime.cleanedMask, runtime.cleanedMask, new cv.Size(5, 5), 0);
+    // Morphology opening/closing removes small noise and fills the skin region.
+    cv.morphologyEx(runtime.cleanedMask, runtime.cleanedMask, cv.MORPH_OPEN, runtime.kernel);
+    cv.morphologyEx(runtime.cleanedMask, runtime.cleanedMask, cv.MORPH_CLOSE, runtime.kernel);
 
-    // Frame differencing motion mask: static face/background skin tones are suppressed.
+    // Frame differencing is used as a selection hint, not as the final mask.
+    // This keeps dwell click working while the hand is held still.
     if (runtime.prevGray.rows > 0) {
       cv.absdiff(runtime.gray, runtime.prevGray, runtime.frameDelta);
       cv.threshold(
@@ -168,16 +176,11 @@ export function useOpenCvHandTracking() {
       );
       cv.morphologyEx(runtime.motionMask, runtime.motionMask, cv.MORPH_OPEN, runtime.kernel);
       cv.dilate(runtime.motionMask, runtime.motionMask, runtime.kernel);
-      cv.bitwise_and(runtime.cleanedMask, runtime.motionMask, runtime.cleanedMask);
+      cv.bitwise_and(runtime.cleanedMask, runtime.motionMask, runtime.movingSkinMask);
     } else {
-      runtime.cleanedMask.setTo(new cv.Scalar(0, 0, 0, 0));
+      runtime.movingSkinMask.setTo(new cv.Scalar(0, 0, 0, 0));
     }
     runtime.gray.copyTo(runtime.prevGray);
-
-    cv.GaussianBlur(runtime.cleanedMask, runtime.cleanedMask, new cv.Size(5, 5), 0);
-    // Morphology opening/closing removes small noise and fills the moving hand region.
-    cv.morphologyEx(runtime.cleanedMask, runtime.cleanedMask, cv.MORPH_OPEN, runtime.kernel);
-    cv.morphologyEx(runtime.cleanedMask, runtime.cleanedMask, cv.MORPH_CLOSE, runtime.kernel);
 
     hsvLower.delete();
     hsvUpper.delete();
@@ -192,13 +195,37 @@ export function useOpenCvHandTracking() {
     cv.findContours(runtime.cleanedMask, runtime.contours, runtime.hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
 
     let bestContour: any = null;
-    let bestArea = 0;
+    let bestScore = Number.NEGATIVE_INFINITY;
+    let bestCenter: CursorPoint | null = null;
     for (let i = 0; i < runtime.contours.size(); i += 1) {
       const contour = runtime.contours.get(i);
       const area = cv.contourArea(contour);
-      if (area >= HAND_DETECTION.minContourArea && area <= HAND_DETECTION.maxContourArea && area > bestArea) {
+      if (area < HAND_DETECTION.minContourArea || area > HAND_DETECTION.maxContourArea) {
+        contour.delete();
+        continue;
+      }
+
+      const rect = cv.boundingRect(contour);
+      const center = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+      const motionRoi = runtime.movingSkinMask.roi(rect);
+      const motionRatio = cv.countNonZero(motionRoi) / Math.max(1, rect.width * rect.height);
+      motionRoi.delete();
+
+      const lastHand = lastHandCameraRef.current;
+      const distFromLast = lastHand ? Math.hypot(center.x - lastHand.x, center.y - lastHand.y) : 0;
+      const hasMotion = motionRatio >= HAND_DETECTION.minMotionRatio;
+      const nearLastHand = Boolean(lastHand && distFromLast <= HAND_DETECTION.trackingMaxDistance);
+
+      if (!hasMotion && !nearLastHand) {
+        contour.delete();
+        continue;
+      }
+
+      const score = motionRatio * 10000 + area * 0.02 - (lastHand ? distFromLast * 8 : 0);
+      if (score > bestScore) {
         if (bestContour) bestContour.delete();
-        bestArea = area;
+        bestScore = score;
+        bestCenter = center;
         bestContour = contour;
       } else {
         contour.delete();
@@ -249,6 +276,7 @@ export function useOpenCvHandTracking() {
         );
         cursor = average(smoothedPointsRef.current);
         lastCursorRef.current = cursor;
+        lastHandCameraRef.current = bestCenter;
         lastSeenAtRef.current = performance.now();
       }
 
@@ -267,9 +295,10 @@ export function useOpenCvHandTracking() {
     if (!withinGrace) {
       smoothedPointsRef.current = [];
       lastCursorRef.current = null;
+      lastHandCameraRef.current = null;
     }
 
-    cv.imshow(maskCanvas, runtime.cleanedMask);
+    cv.imshow(maskCanvas, runtime.movingSkinMask);
     cv.imshow(contourCanvas, debug);
     debug.delete();
 
@@ -304,7 +333,7 @@ export function useOpenCvHandTracking() {
       setState((current) => ({
         ...current,
         cameraStatus: 'camera-error',
-        cameraError: error instanceof Error ? error.message : '카메라를 시작할 수 없습니다.',
+        cameraError: error instanceof Error ? error.message : 'Camera could not start.',
       }));
     }
   }, [processFrame]);

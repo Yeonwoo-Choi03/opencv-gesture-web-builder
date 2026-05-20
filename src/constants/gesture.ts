@@ -8,7 +8,9 @@ export const HAND_DETECTION = {
   maxContourArea: 42000,
   noHandGraceMs: 450,
   smoothingWindow: 6,
-  motionThreshold: 22,
+  motionThreshold: 16,
+  minMotionRatio: 0.012,
+  trackingMaxDistance: 120,
   // YCrCb skin threshold. Adjust Cr/Cb ranges for the room lighting.
   yCrCbLower: [0, 133, 77, 0],
   yCrCbUpper: [255, 173, 127, 255],
