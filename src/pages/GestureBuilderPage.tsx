@@ -76,11 +76,6 @@ export function GestureBuilderPage() {
           addElement(target.value.replace('add:', '') as BuilderElementType, cursor);
           return;
         }
-        if (target.value === 'drop') {
-          setDraggingId(null);
-          setGestureState('Dropped');
-          return;
-        }
         if (target.value === 'delete') {
           if (selectedId) {
             setElements((current) => current.filter((element) => element.id !== selectedId));
@@ -113,7 +108,7 @@ export function GestureBuilderPage() {
         setSelectedId(element.id);
         setDraggingId(element.id);
         setDragOffset({ x: local.x - element.x, y: local.y - element.y });
-        setGestureState(element.type === 'text' ? 'Selected / Typing' : 'Selected / Dragging');
+        setGestureState(element.type === 'text' ? 'Selected / Typing' : 'Dragging / hold 0.6s to place');
         return;
       }
 
@@ -160,14 +155,14 @@ export function GestureBuilderPage() {
     if (!target) {
       hoverRef.current = null;
       setDwellProgress(0);
-      setGestureState(draggingId ? 'Dragging' : 'Tracking');
+      setGestureState(draggingId ? 'Dragging / hold 0.6s to place' : 'Tracking');
       return;
     }
 
     if (!hover || hover.target !== targetKey || distance(hover.point, cursor) > DWELL.hoverResetDistance) {
       hoverRef.current = { target: targetKey, point: cursor, startedAt: now };
       setDwellProgress(0);
-      setGestureState(draggingId ? 'Dragging / Hover' : 'Hover');
+      setGestureState(draggingId ? 'Dragging / hold 0.6s to place' : 'Hover');
       return;
     }
 
@@ -176,10 +171,10 @@ export function GestureBuilderPage() {
       setGestureState(
         progress >= 1
           ? draggingId
-            ? 'Drop Click'
+            ? 'Placed'
             : 'Dwell Click'
           : draggingId
-            ? 'Dragging / Hold to Drop'
+            ? 'Dragging / hold 0.6s to place'
             : 'Dwell Clicking',
       );
 
