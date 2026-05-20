@@ -78,6 +78,16 @@ function getHandRoi() {
   };
 }
 
+function roiPointToViewport(point: CursorPoint, roi: ReturnType<typeof getHandRoi>) {
+  const normalizedX = clamp((point.x - roi.x) / roi.width, 0, 1);
+  const normalizedY = clamp((point.y - roi.y) / roi.height, 0, 1);
+
+  return {
+    x: normalizedX * window.innerWidth,
+    y: normalizedY * window.innerHeight,
+  };
+}
+
 export function useOpenCvHandTracking() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const maskCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -240,10 +250,8 @@ export function useOpenCvHandTracking() {
         fingertipEstimated = true;
         cv.circle(debug, new cv.Point(tipX, tipY), 7, new cv.Scalar(239, 68, 68, 255), -1);
 
-        const viewportPoint = {
-          x: clamp((tipX / CAMERA_WIDTH) * window.innerWidth, 0, window.innerWidth),
-          y: clamp((tipY / CAMERA_HEIGHT) * window.innerHeight, 0, window.innerHeight),
-        };
+        // ROI 내부의 손가락 위치를 화면 전체 좌표로 정규화해 좁은 조작 영역으로도 전체 UI를 제어한다.
+        const viewportPoint = roiPointToViewport({ x: tipX, y: tipY }, handRoi);
 
         smoothedPointsRef.current = [...smoothedPointsRef.current, viewportPoint].slice(
           -HAND_DETECTION.smoothingWindow,
