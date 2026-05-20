@@ -18,12 +18,15 @@ export interface HandTrackingState {
 interface CvRuntime {
   mat: any;
   rgb: any;
+  gray: any;
+  prevGray: any;
+  frameDelta: any;
   hsv: any;
   ycrcb: any;
   hsvMask: any;
   skinMask: any;
+  motionMask: any;
   cleanedMask: any;
-  roiMask: any;
   hierarchy: any;
   contours: any;
   kernel: any;
@@ -67,27 +70,6 @@ function average(points: CursorPoint[]) {
   return { x: sum.x / points.length, y: sum.y / points.length };
 }
 
-function getHandRoi() {
-  const { roi } = HAND_DETECTION;
-
-  return {
-    x: Math.round(CAMERA_WIDTH * roi.xRatio),
-    y: Math.round(CAMERA_HEIGHT * roi.yRatio),
-    width: Math.round(CAMERA_WIDTH * roi.widthRatio),
-    height: Math.round(CAMERA_HEIGHT * roi.heightRatio),
-  };
-}
-
-function roiPointToViewport(point: CursorPoint, roi: ReturnType<typeof getHandRoi>) {
-  const normalizedX = clamp((point.x - roi.x) / roi.width, 0, 1);
-  const normalizedY = clamp((point.y - roi.y) / roi.height, 0, 1);
-
-  return {
-    x: normalizedX * window.innerWidth,
-    y: normalizedY * window.innerHeight,
-  };
-}
-
 export function useOpenCvHandTracking() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const maskCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -125,12 +107,15 @@ export function useOpenCvHandTracking() {
     const runtime: CvRuntime = {
       mat: new cv.Mat(CAMERA_HEIGHT, CAMERA_WIDTH, cv.CV_8UC4),
       rgb: new cv.Mat(),
+      gray: new cv.Mat(),
+      prevGray: new cv.Mat(),
+      frameDelta: new cv.Mat(),
       hsv: new cv.Mat(),
       ycrcb: new cv.Mat(),
       hsvMask: new cv.Mat(),
       skinMask: new cv.Mat(),
+      motionMask: new cv.Mat(),
       cleanedMask: new cv.Mat(),
-      roiMask: new cv.Mat(CAMERA_HEIGHT, CAMERA_WIDTH, cv.CV_8UC1),
       hierarchy: new cv.Mat(),
       contours: new cv.MatVector(),
       kernel: cv.Mat.ones(5, 5, cv.CV_8U),
@@ -155,8 +140,10 @@ export function useOpenCvHandTracking() {
     runtime.cap.read(runtime.mat);
     cv.flip(runtime.mat, runtime.mat, 1);
 
-    // HSV/YCrCb 색공간 변환 후 피부색 mask를 만든다.
+    // HSV/YCrCb color conversion for skin segmentation.
     cv.cvtColor(runtime.mat, runtime.rgb, cv.COLOR_RGBA2RGB);
+    cv.cvtColor(runtime.rgb, runtime.gray, cv.COLOR_RGB2GRAY);
+    cv.GaussianBlur(runtime.gray, runtime.gray, new cv.Size(7, 7), 0);
     cv.cvtColor(runtime.rgb, runtime.hsv, cv.COLOR_RGB2HSV);
     cv.cvtColor(runtime.rgb, runtime.ycrcb, cv.COLOR_RGB2YCrCb);
 
@@ -168,21 +155,29 @@ export function useOpenCvHandTracking() {
     cv.inRange(runtime.hsv, hsvLower, hsvUpper, runtime.hsvMask);
     cv.inRange(runtime.ycrcb, skinLower, skinUpper, runtime.skinMask);
     cv.bitwise_and(runtime.hsvMask, runtime.skinMask, runtime.cleanedMask);
+
+    // Frame differencing motion mask: static face/background skin tones are suppressed.
+    if (runtime.prevGray.rows > 0) {
+      cv.absdiff(runtime.gray, runtime.prevGray, runtime.frameDelta);
+      cv.threshold(
+        runtime.frameDelta,
+        runtime.motionMask,
+        HAND_DETECTION.motionThreshold,
+        255,
+        cv.THRESH_BINARY,
+      );
+      cv.morphologyEx(runtime.motionMask, runtime.motionMask, cv.MORPH_OPEN, runtime.kernel);
+      cv.dilate(runtime.motionMask, runtime.motionMask, runtime.kernel);
+      cv.bitwise_and(runtime.cleanedMask, runtime.motionMask, runtime.cleanedMask);
+    } else {
+      runtime.cleanedMask.setTo(new cv.Scalar(0, 0, 0, 0));
+    }
+    runtime.gray.copyTo(runtime.prevGray);
+
     cv.GaussianBlur(runtime.cleanedMask, runtime.cleanedMask, new cv.Size(5, 5), 0);
-    // morphology opening/closing으로 작은 노이즈를 제거하고 손 영역을 메운다.
+    // Morphology opening/closing removes small noise and fills the moving hand region.
     cv.morphologyEx(runtime.cleanedMask, runtime.cleanedMask, cv.MORPH_OPEN, runtime.kernel);
     cv.morphologyEx(runtime.cleanedMask, runtime.cleanedMask, cv.MORPH_CLOSE, runtime.kernel);
-
-    // Limit hand detection to a fixed ROI so face/background skin tones are ignored.
-    const handRoi = getHandRoi();
-    runtime.roiMask.setTo(new cv.Scalar(0, 0, 0, 0));
-    const roiRect = new cv.Rect(handRoi.x, handRoi.y, handRoi.width, handRoi.height);
-    const sourceRoi = runtime.cleanedMask.roi(roiRect);
-    const targetRoi = runtime.roiMask.roi(roiRect);
-    sourceRoi.copyTo(targetRoi);
-    runtime.roiMask.copyTo(runtime.cleanedMask);
-    sourceRoi.delete();
-    targetRoi.delete();
 
     hsvLower.delete();
     hsvUpper.delete();
@@ -201,7 +196,7 @@ export function useOpenCvHandTracking() {
     for (let i = 0; i < runtime.contours.size(); i += 1) {
       const contour = runtime.contours.get(i);
       const area = cv.contourArea(contour);
-      if (area > bestArea) {
+      if (area >= HAND_DETECTION.minContourArea && area <= HAND_DETECTION.maxContourArea && area > bestArea) {
         if (bestContour) bestContour.delete();
         bestArea = area;
         bestContour = contour;
@@ -211,18 +206,11 @@ export function useOpenCvHandTracking() {
     }
 
     const debug = cv.Mat.zeros(CAMERA_HEIGHT, CAMERA_WIDTH, cv.CV_8UC4);
-    cv.rectangle(
-      debug,
-      new cv.Point(handRoi.x, handRoi.y),
-      new cv.Point(handRoi.x + handRoi.width, handRoi.y + handRoi.height),
-      new cv.Scalar(245, 158, 11, 255),
-      2,
-    );
     let cursor: CursorPoint | null = null;
     let fingertipEstimated = false;
     let contourDetected = false;
 
-    if (bestContour && bestArea >= HAND_DETECTION.minContourArea) {
+    if (bestContour) {
       contourDetected = true;
       const contourList = new cv.MatVector();
       contourList.push_back(bestContour);
@@ -234,7 +222,7 @@ export function useOpenCvHandTracking() {
       hullList.push_back(hull);
       cv.drawContours(debug, hullList, 0, new cv.Scalar(22, 163, 74, 255), 1);
 
-      // 검지만 편 조작을 가정하고 contour의 최상단 점을 손가락 끝 후보로 추정한다.
+      // With the index finger raised, the topmost contour point is used as the fingertip candidate.
       let tipX = 0;
       let tipY = Number.POSITIVE_INFINITY;
       for (let i = 0; i < bestContour.data32S.length; i += 2) {
@@ -250,8 +238,11 @@ export function useOpenCvHandTracking() {
         fingertipEstimated = true;
         cv.circle(debug, new cv.Point(tipX, tipY), 7, new cv.Scalar(239, 68, 68, 255), -1);
 
-        // ROI 내부의 손가락 위치를 화면 전체 좌표로 정규화해 좁은 조작 영역으로도 전체 UI를 제어한다.
-        const viewportPoint = roiPointToViewport({ x: tipX, y: tipY }, handRoi);
+        // Convert camera coordinates to viewport coordinates for the virtual cursor.
+        const viewportPoint = {
+          x: clamp((tipX / CAMERA_WIDTH) * window.innerWidth, 0, window.innerWidth),
+          y: clamp((tipY / CAMERA_HEIGHT) * window.innerHeight, 0, window.innerHeight),
+        };
 
         smoothedPointsRef.current = [...smoothedPointsRef.current, viewportPoint].slice(
           -HAND_DETECTION.smoothingWindow,

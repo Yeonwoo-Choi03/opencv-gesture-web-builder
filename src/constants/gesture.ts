@@ -5,15 +5,10 @@ export const CAMERA_HEIGHT = 240;
 
 export const HAND_DETECTION = {
   minContourArea: 2600,
+  maxContourArea: 42000,
   noHandGraceMs: 450,
   smoothingWindow: 6,
-  // Camera ROI used for hand operation. Contours outside this box are ignored.
-  roi: {
-    xRatio: 0.28,
-    yRatio: 0.16,
-    widthRatio: 0.68,
-    heightRatio: 0.78,
-  },
+  motionThreshold: 22,
   // YCrCb skin threshold. Adjust Cr/Cb ranges for the room lighting.
   yCrCbLower: [0, 133, 77, 0],
   yCrCbUpper: [255, 173, 127, 255],

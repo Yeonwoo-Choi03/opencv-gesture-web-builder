@@ -173,7 +173,15 @@ export function GestureBuilderPage() {
 
     const progress = clamp((now - hover.startedAt) / DWELL.clickMs, 0, 1);
     setDwellProgress(progress);
-    setGestureState(progress >= 1 ? 'Dwell Click' : draggingId ? 'Dragging / Dwell Clicking' : 'Dwell Clicking');
+      setGestureState(
+        progress >= 1
+          ? draggingId
+            ? 'Drop Click'
+            : 'Dwell Click'
+          : draggingId
+            ? 'Dragging / Hold to Drop'
+            : 'Dwell Clicking',
+      );
 
     if (progress >= 1 && now - lastClickAtRef.current > DWELL.cooldownMs) {
       lastClickAtRef.current = now;

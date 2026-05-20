@@ -38,7 +38,7 @@ export function StatusPanel({ selectedElement, tracking, gestureState, dwellProg
         </div>
         <div>
           <dt>Skin Mask</dt>
-          <dd>{tracking.cameraStatus === 'camera-on' ? 'Running' : 'Waiting'}</dd>
+          <dd>{tracking.cameraStatus === 'camera-on' ? 'Skin + motion' : 'Waiting'}</dd>
         </div>
         <div>
           <dt>Contour</dt>
