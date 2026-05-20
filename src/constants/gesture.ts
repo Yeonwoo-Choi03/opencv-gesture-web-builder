@@ -7,7 +7,14 @@ export const HAND_DETECTION = {
   minContourArea: 2600,
   noHandGraceMs: 450,
   smoothingWindow: 6,
-  // YCrCb skin threshold. 조명에 따라 Cr/Cb 범위를 조정하면 인식률이 달라진다.
+  // Camera ROI used for hand operation. Contours outside this box are ignored.
+  roi: {
+    xRatio: 0.28,
+    yRatio: 0.16,
+    widthRatio: 0.68,
+    heightRatio: 0.78,
+  },
+  // YCrCb skin threshold. Adjust Cr/Cb ranges for the room lighting.
   yCrCbLower: [0, 133, 77, 0],
   yCrCbUpper: [255, 173, 127, 255],
   // HSV threshold is intersected with YCrCb to reduce bright background noise.

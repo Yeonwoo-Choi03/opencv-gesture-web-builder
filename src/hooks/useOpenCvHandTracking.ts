@@ -23,6 +23,7 @@ interface CvRuntime {
   hsvMask: any;
   skinMask: any;
   cleanedMask: any;
+  roiMask: any;
   hierarchy: any;
   contours: any;
   kernel: any;
@@ -64,6 +65,17 @@ function average(points: CursorPoint[]) {
     { x: 0, y: 0 },
   );
   return { x: sum.x / points.length, y: sum.y / points.length };
+}
+
+function getHandRoi() {
+  const { roi } = HAND_DETECTION;
+
+  return {
+    x: Math.round(CAMERA_WIDTH * roi.xRatio),
+    y: Math.round(CAMERA_HEIGHT * roi.yRatio),
+    width: Math.round(CAMERA_WIDTH * roi.widthRatio),
+    height: Math.round(CAMERA_HEIGHT * roi.heightRatio),
+  };
 }
 
 export function useOpenCvHandTracking() {
@@ -108,6 +120,7 @@ export function useOpenCvHandTracking() {
       hsvMask: new cv.Mat(),
       skinMask: new cv.Mat(),
       cleanedMask: new cv.Mat(),
+      roiMask: new cv.Mat(CAMERA_HEIGHT, CAMERA_WIDTH, cv.CV_8UC1),
       hierarchy: new cv.Mat(),
       contours: new cv.MatVector(),
       kernel: cv.Mat.ones(5, 5, cv.CV_8U),
@@ -150,6 +163,17 @@ export function useOpenCvHandTracking() {
     cv.morphologyEx(runtime.cleanedMask, runtime.cleanedMask, cv.MORPH_OPEN, runtime.kernel);
     cv.morphologyEx(runtime.cleanedMask, runtime.cleanedMask, cv.MORPH_CLOSE, runtime.kernel);
 
+    // Limit hand detection to a fixed ROI so face/background skin tones are ignored.
+    const handRoi = getHandRoi();
+    runtime.roiMask.setTo(new cv.Scalar(0, 0, 0, 0));
+    const roiRect = new cv.Rect(handRoi.x, handRoi.y, handRoi.width, handRoi.height);
+    const sourceRoi = runtime.cleanedMask.roi(roiRect);
+    const targetRoi = runtime.roiMask.roi(roiRect);
+    sourceRoi.copyTo(targetRoi);
+    runtime.roiMask.copyTo(runtime.cleanedMask);
+    sourceRoi.delete();
+    targetRoi.delete();
+
     hsvLower.delete();
     hsvUpper.delete();
     skinLower.delete();
@@ -177,6 +201,13 @@ export function useOpenCvHandTracking() {
     }
 
     const debug = cv.Mat.zeros(CAMERA_HEIGHT, CAMERA_WIDTH, cv.CV_8UC4);
+    cv.rectangle(
+      debug,
+      new cv.Point(handRoi.x, handRoi.y),
+      new cv.Point(handRoi.x + handRoi.width, handRoi.y + handRoi.height),
+      new cv.Scalar(245, 158, 11, 255),
+      2,
+    );
     let cursor: CursorPoint | null = null;
     let fingertipEstimated = false;
     let contourDetected = false;
