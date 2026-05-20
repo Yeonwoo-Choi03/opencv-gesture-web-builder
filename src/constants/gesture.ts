@@ -4,8 +4,8 @@ export const CAMERA_WIDTH = 320;
 export const CAMERA_HEIGHT = 240;
 
 export const HAND_DETECTION = {
-  minContourArea: 2600,
-  maxContourArea: 42000,
+  minContourArea: 1800,
+  maxContourArea: 22000,
   noHandGraceMs: 450,
   smoothingWindow: 6,
   motionThreshold: 16,

@@ -27,6 +27,9 @@ export function Toolbar() {
             {tool.label}
           </button>
         ))}
+        <button type="button" className="tool-button action" data-gesture-kind="tool" data-gesture-value="resize">
+          Resize Mode
+        </button>
         <button type="button" className="tool-button danger" data-gesture-kind="tool" data-gesture-value="delete">
           Delete
         </button>

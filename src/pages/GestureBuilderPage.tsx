@@ -28,6 +28,7 @@ export function GestureBuilderPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const [resizeMode, setResizeMode] = useState(false);
   const [dwellProgress, setDwellProgress] = useState(0);
   const [gestureState, setGestureState] = useState('Waiting');
   const hoverRef = useRef<{ target: string; point: CursorPoint; startedAt: number } | null>(null);
@@ -82,12 +83,30 @@ export function GestureBuilderPage() {
       if (target.kind === 'tool') {
         if (target.value.startsWith('add:')) {
           addElement(target.value.replace('add:', '') as BuilderElementType, cursor);
+          setResizeMode(false);
+          scaleRef.current = null;
+          return;
+        }
+        if (target.value === 'resize') {
+          if (selectedId) {
+            setDraggingId(null);
+            scaleRef.current = null;
+            setResizeMode((current) => {
+              const next = !current;
+              setGestureState(next ? 'Resize mode on' : 'Resize mode off');
+              return next;
+            });
+          } else {
+            setGestureState('Select an element first');
+          }
           return;
         }
         if (target.value === 'delete') {
           if (selectedId) {
             setElements((current) => current.filter((element) => element.id !== selectedId));
             setDraggingId(null);
+            setResizeMode(false);
+            scaleRef.current = null;
             setSelectedId(null);
             setGestureState('Deleted');
           }
@@ -97,6 +116,8 @@ export function GestureBuilderPage() {
           setElements([]);
           setSelectedId(null);
           setDraggingId(null);
+          setResizeMode(false);
+          scaleRef.current = null;
           setGestureState('Canvas cleared');
         }
         return;
@@ -115,6 +136,8 @@ export function GestureBuilderPage() {
         const local = viewportToLocal(cursor, canvasRect);
         setSelectedId(element.id);
         setDraggingId(element.id);
+        setResizeMode(false);
+        scaleRef.current = null;
         setDragOffset({ x: local.x - element.x, y: local.y - element.y });
         setGestureState(element.type === 'text' ? 'Selected / Typing' : 'Dragging / hold 0.6s to place');
         return;
@@ -130,7 +153,7 @@ export function GestureBuilderPage() {
   useEffect(() => {
     const cursor = tracking.cursor;
 
-    if (selectedElement && tracking.handPoints.length >= 2) {
+    if (resizeMode && selectedElement && tracking.handPoints.length >= 2) {
       const canvasRect = canvasRef.current?.getBoundingClientRect();
       const currentDistance = distance(tracking.handPoints[0], tracking.handPoints[1]);
 
@@ -253,12 +276,16 @@ export function GestureBuilderPage() {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setDraggingId(null);
+        setResizeMode(false);
+        scaleRef.current = null;
         setGestureState('Dropped');
       }
       if ((event.key === 'Delete' || event.key === 'Backspace') && selectedId && event.target === document.body) {
         setElements((current) => current.filter((element) => element.id !== selectedId));
         setSelectedId(null);
         setDraggingId(null);
+        setResizeMode(false);
+        scaleRef.current = null;
       }
     };
     window.addEventListener('keydown', onKeyDown);
@@ -329,6 +356,7 @@ export function GestureBuilderPage() {
             gestureState={gestureState}
             dwellProgress={dwellProgress}
             dragging={Boolean(draggingId)}
+            resizeMode={resizeMode}
           />
           <CameraDebugPanel
             videoRef={videoRef}

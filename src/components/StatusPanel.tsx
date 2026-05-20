@@ -7,9 +7,17 @@ interface StatusPanelProps {
   gestureState: string;
   dwellProgress: number;
   dragging: boolean;
+  resizeMode: boolean;
 }
 
-export function StatusPanel({ selectedElement, tracking, gestureState, dwellProgress, dragging }: StatusPanelProps) {
+export function StatusPanel({
+  selectedElement,
+  tracking,
+  gestureState,
+  dwellProgress,
+  dragging,
+  resizeMode,
+}: StatusPanelProps) {
   return (
     <section className="panel status-panel">
       <div className="panel-heading">
@@ -35,6 +43,10 @@ export function StatusPanel({ selectedElement, tracking, gestureState, dwellProg
         <div>
           <dt>Dragging</dt>
           <dd>{dragging ? 'Active' : 'Inactive'}</dd>
+        </div>
+        <div>
+          <dt>Resize Mode</dt>
+          <dd>{resizeMode ? 'On' : 'Off'}</dd>
         </div>
         <div>
           <dt>Dwell</dt>
