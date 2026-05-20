@@ -38,7 +38,7 @@ export function CameraDebugPanel({
         </figure>
         <figure>
           <canvas ref={maskCanvasRef} width={CAMERA_WIDTH} height={CAMERA_HEIGHT} />
-          <figcaption>Skin + motion mask</figcaption>
+          <figcaption>Final hand candidate mask</figcaption>
         </figure>
         <figure className="wide-debug">
           <canvas ref={contourCanvasRef} width={CAMERA_WIDTH} height={CAMERA_HEIGHT} />

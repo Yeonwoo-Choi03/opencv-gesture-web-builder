@@ -135,7 +135,7 @@ function isHeadLikeContour(cv: any, contour: any, area: number, rect: any) {
   );
 }
 
-function eraseFaceRegions(cv: any, mask: any, faces: any) {
+function eraseStaticFaceRegions(cv: any, mask: any, movingSkinMask: any, faces: any) {
   const faceRects: Array<{ x: number; y: number; width: number; height: number }> = [];
   for (let i = 0; i < faces.size(); i += 1) {
     const face = faces.get(i);
@@ -148,7 +148,15 @@ function eraseFaceRegions(cv: any, mask: any, faces: any) {
     const height = Math.max(0, bottom - y);
 
     if (width > 0 && height > 0) {
-      cv.rectangle(mask, new cv.Point(x, y), new cv.Point(x + width, y + height), new cv.Scalar(0, 0, 0, 0), -1);
+      const faceRect = new cv.Rect(x, y, width, height);
+      const targetRoi = mask.roi(faceRect);
+      const movingSkinRoi = movingSkinMask.roi(faceRect);
+
+      // Inside a detected face box, keep only moving skin. This suppresses the static face
+      // while still allowing a hand passing in front of the face to remain trackable.
+      movingSkinRoi.copyTo(targetRoi);
+      targetRoi.delete();
+      movingSkinRoi.delete();
       faceRects.push({ x, y, width, height });
     }
   }
@@ -266,8 +274,6 @@ export function useOpenCvHandTracking() {
     // Morphology opening/closing removes small noise and fills the skin region.
     cv.morphologyEx(runtime.cleanedMask, runtime.cleanedMask, cv.MORPH_OPEN, runtime.kernel);
     cv.morphologyEx(runtime.cleanedMask, runtime.cleanedMask, cv.MORPH_CLOSE, runtime.kernel);
-    // OpenCV Haar Cascade detects face boxes first; those skin regions are removed before hand contour search.
-    const faceRects = eraseFaceRegions(cv, runtime.cleanedMask, runtime.faces);
 
     // Frame differencing is used as a selection hint, not as the final mask.
     // This keeps dwell click working while the hand is held still.
@@ -287,6 +293,10 @@ export function useOpenCvHandTracking() {
       runtime.movingSkinMask.setTo(new cv.Scalar(0, 0, 0, 0));
     }
     runtime.gray.copyTo(runtime.prevGray);
+
+    // OpenCV Haar Cascade detects face boxes first. Inside those boxes, static skin is removed,
+    // but moving skin is preserved so a hand crossing the face area is not erased wholesale.
+    const faceRects = eraseStaticFaceRegions(cv, runtime.cleanedMask, runtime.movingSkinMask, runtime.faces);
 
     hsvLower.delete();
     hsvUpper.delete();
@@ -426,7 +436,7 @@ export function useOpenCvHandTracking() {
       lastHandCameraRef.current = null;
     }
 
-    cv.imshow(maskCanvas, runtime.movingSkinMask);
+    cv.imshow(maskCanvas, runtime.cleanedMask);
     cv.imshow(contourCanvas, debug);
     debug.delete();
 
