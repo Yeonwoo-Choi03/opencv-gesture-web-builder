@@ -6,6 +6,8 @@ export const CAMERA_WIDTH = 320;
 export const CAMERA_HEIGHT = 240;
 
 export const HAND_DETECTION = {
+  backgroundCalibrationMs: 5000,
+  handRegistrationMs: 2000,
   minContourArea: 1800,
   maxContourArea: 22000,
   noHandGraceMs: 450,
@@ -13,6 +15,13 @@ export const HAND_DETECTION = {
   motionThreshold: 16,
   minMotionRatio: 0.012,
   trackingMaxDistance: 120,
+  registrationBox: {
+    xRatio: 0.32,
+    yRatio: 0.22,
+    widthRatio: 0.36,
+    heightRatio: 0.48,
+  },
+  backgroundDiffThreshold: 24,
   facePadding: 18,
   headReject: {
     minArea: 4200,

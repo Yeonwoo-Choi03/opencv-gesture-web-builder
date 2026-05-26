@@ -21,6 +21,31 @@ function readGestureTarget(cursor: CursorPoint): GestureTarget | null {
   };
 }
 
+function getCalibrationMessage(phase: string) {
+  if (phase === 'background-calibration') {
+    return {
+      title: '배경 캘리브레이션 중',
+      body: '손을 화면 밖으로 빼고 얼굴과 몸을 최대한 움직이지 마세요.',
+    };
+  }
+
+  if (phase === 'hand-registration') {
+    return {
+      title: '손을 등록합니다',
+      body: '초록색 박스 안에 손을 2초 동안 넣어주세요.',
+    };
+  }
+
+  if (phase === 'lost') {
+    return {
+      title: '손 추적이 끊겼습니다',
+      body: '손을 다시 움직이거나 R 키로 손만 다시 등록하세요.',
+    };
+  }
+
+  return null;
+}
+
 export function GestureBuilderPage() {
   const { videoRef, maskCanvasRef, contourCanvasRef, state: tracking } = useOpenCvHandTracking();
   const canvasRef = useRef<HTMLDivElement | null>(null);
@@ -46,6 +71,8 @@ export function GestureBuilderPage() {
     () => elements.find((element) => element.id === selectedId),
     [elements, selectedId],
   );
+  const calibrationMessage = getCalibrationMessage(tracking.phase);
+  const countdownSeconds = Math.ceil(tracking.phaseCountdownMs / 1000);
 
   const addElement = useCallback((type: BuilderElementType, cursor: CursorPoint | null) => {
     const canvasRect = canvasRef.current?.getBoundingClientRect();
@@ -326,6 +353,17 @@ export function GestureBuilderPage() {
                 손가락 커서를 도구 버튼 위에 0.6초 머물러 요소를 추가하세요.
               </div>
             )}
+            {tracking.phase === 'hand-registration' && (
+              <div
+                className="registration-box"
+                style={{
+                  left: `${(tracking.registrationBox.x / 320) * 100}%`,
+                  top: `${(tracking.registrationBox.y / 240) * 100}%`,
+                  width: `${(tracking.registrationBox.width / 320) * 100}%`,
+                  height: `${(tracking.registrationBox.height / 240) * 100}%`,
+                }}
+              />
+            )}
           </div>
 
           <VirtualKeyboard visible={selectedElement?.type === 'text'} />
@@ -368,6 +406,19 @@ export function GestureBuilderPage() {
       </div>
 
       <GestureCursor cursor={tracking.cursor} progress={dwellProgress} active={tracking.handDetected} />
+      {calibrationMessage && (
+        <div className="calibration-overlay">
+          <div className="calibration-card">
+            <span className="status-pill good">
+              {tracking.phase === 'background-calibration' ? 'Shift + R: full reset' : 'R: hand registration'}
+            </span>
+            <h2>{calibrationMessage.title}</h2>
+            <p>{calibrationMessage.body}</p>
+            {tracking.phaseCountdownMs > 0 && <strong>{countdownSeconds}</strong>}
+            <small>R: 손만 다시 등록 / Shift + R: 배경부터 다시 캘리브레이션</small>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

@@ -37,6 +37,14 @@ export function StatusPanel({
           <dd>{gestureState}</dd>
         </div>
         <div>
+          <dt>Phase</dt>
+          <dd>{tracking.phase}</dd>
+        </div>
+        <div>
+          <dt>Registered</dt>
+          <dd>{tracking.registeredHand ? 'Yes' : 'No'}</dd>
+        </div>
+        <div>
           <dt>Hands</dt>
           <dd>{tracking.handCount}</dd>
         </div>
