@@ -45,9 +45,7 @@ export function CanvasElement({
           <strong>{element.text.split('\n')[0]}</strong>
           <span>{element.text.split('\n').slice(1).join(' ') || 'Short description'}</span>
         </>
-      ) : element.type === 'image' && element.imageSrc ? (
-        <span className="image-label">{element.text}</span>
-      ) : (
+      ) : element.type === 'image' && element.imageSrc ? null : (
         <span>{element.text}</span>
       )}
       {selected && resizeHandleActive && (
