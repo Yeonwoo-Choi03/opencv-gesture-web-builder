@@ -66,7 +66,8 @@ const MARKER = {
   maxArea: 2200,
   clickDistance: 58,
   resizeMinDistance: 36,
-  smoothingWindow: 8,
+  smoothingWindow: 12,
+  cursorDeadzone: 10,
   noMarkerGraceMs: 850,
   redRanges: [
     { lower: [0, 135, 105, 0], upper: [8, 255, 255, 255] },
@@ -290,6 +291,9 @@ export function useOpenCvHandTracking() {
       handPoints.push(redViewport);
       smoothedPointsRef.current = [...smoothedPointsRef.current, redViewport].slice(-MARKER.smoothingWindow);
       cursor = average(smoothedPointsRef.current);
+      if (lastCursorRef.current && Math.hypot(cursor.x - lastCursorRef.current.x, cursor.y - lastCursorRef.current.y) < MARKER.cursorDeadzone) {
+        cursor = lastCursorRef.current;
+      }
       lastCursorRef.current = cursor;
       lastSeenAtRef.current = performance.now();
     }
