@@ -326,7 +326,6 @@ export function GestureBuilderPage() {
           <p>OpenCV.js Computer Vision Team Project</p>
           <h1>Hand Gesture Web Builder</h1>
         </div>
-        <a className="preview-link" href="#preview">Preview</a>
       </header>
 
       <div className="builder-layout">
@@ -367,27 +366,15 @@ export function GestureBuilderPage() {
           </div>
 
           <VirtualKeyboard visible={selectedElement?.type === 'text'} />
-
-          <section className="panel preview-panel" id="preview">
-            <div className="panel-heading">
-              <h2>Page Preview</h2>
-              <span className="status-pill">{elements.length} elements</span>
-            </div>
-            <div className="preview-surface">
-              {elements.map((element) => (
-                <CanvasElement
-                  key={`preview-${element.id}`}
-                  element={{ ...element, x: element.x * 0.42, y: element.y * 0.42, width: element.width * 0.42, height: element.height * 0.42 }}
-                  selected={false}
-                  dragging={false}
-                  interactive={false}
-                />
-              ))}
-            </div>
-          </section>
         </section>
 
         <aside className="right-rail">
+          <CameraDebugPanel
+            videoRef={videoRef}
+            maskCanvasRef={maskCanvasRef}
+            contourCanvasRef={contourCanvasRef}
+            tracking={tracking}
+          />
           <StatusPanel
             selectedElement={selectedElement}
             tracking={tracking}
@@ -395,12 +382,6 @@ export function GestureBuilderPage() {
             dwellProgress={dwellProgress}
             dragging={Boolean(draggingId)}
             resizeMode={resizeMode}
-          />
-          <CameraDebugPanel
-            videoRef={videoRef}
-            maskCanvasRef={maskCanvasRef}
-            contourCanvasRef={contourCanvasRef}
-            tracking={tracking}
           />
         </aside>
       </div>

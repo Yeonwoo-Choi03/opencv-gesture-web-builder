@@ -54,14 +54,6 @@ a {
   letter-spacing: 0;
 }
 
-.preview-link {
-  color: #dbeafe;
-  text-decoration: none;
-  border: 1px solid #3b82f6;
-  border-radius: 8px;
-  padding: 9px 14px;
-}
-
 .builder-layout {
   display: grid;
   grid-template-columns: 190px minmax(720px, 1fr) 360px;
@@ -325,6 +317,8 @@ a {
 }
 
 .right-rail {
+  position: sticky;
+  top: 18px;
   display: grid;
   gap: 16px;
 }
@@ -450,26 +444,6 @@ a {
 
 .key-button.wide {
   width: 150px;
-}
-
-.preview-panel {
-  overflow: hidden;
-}
-
-.preview-surface {
-  position: relative;
-  height: 330px;
-  overflow: hidden;
-  margin: 12px;
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-}
-
-.preview-surface .canvas-element {
-  pointer-events: none;
-  transform-origin: top left;
-  font-size: 12px;
 }
 
 .gesture-cursor {
