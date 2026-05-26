@@ -32,7 +32,7 @@ function getCalibrationMessage(phase: string) {
   if (phase === 'lost') {
     return {
       title: 'Marker tracking lost',
-      body: 'Show the red marker to move the cursor. Bring the blue marker near red to click.',
+      body: 'Show the red marker to move the cursor. Hold it over a target for 0.6 seconds to click.',
     };
   }
 
@@ -86,7 +86,6 @@ export function GestureBuilderPage() {
   const [gestureState, setGestureState] = useState('Waiting');
   const hoverRef = useRef<{ target: string; point: CursorPoint; startedAt: number } | null>(null);
   const lastClickAtRef = useRef(0);
-  const markerClickWasActiveRef = useRef(false);
   const markerScaleRef = useRef<{
     elementId: string;
     startDistance: number;
@@ -441,20 +440,6 @@ export function GestureBuilderPage() {
     const now = performance.now();
     const hover = hoverRef.current;
 
-    if (tracking.markerClickActive && !markerClickWasActiveRef.current && target && now - lastClickAtRef.current > DWELL.cooldownMs) {
-      markerClickWasActiveRef.current = true;
-      lastClickAtRef.current = now;
-      hoverRef.current = null;
-      setDwellProgress(0);
-      setGestureState('Marker Click');
-      runAction(target, cursor);
-      return;
-    }
-
-    if (!tracking.markerClickActive) {
-      markerClickWasActiveRef.current = false;
-    }
-
     if (!target) {
       hoverRef.current = null;
       setDwellProgress(0);
@@ -517,7 +502,6 @@ export function GestureBuilderPage() {
     tracking.cameraStatus,
     tracking.cursor,
     tracking.handPoints,
-    tracking.markerClickActive,
     tracking.resizeDistance,
   ]);
 

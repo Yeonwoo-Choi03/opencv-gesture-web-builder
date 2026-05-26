@@ -38,7 +38,7 @@ export function CameraDebugPanel({
         </figure>
         <figure>
           <canvas ref={maskCanvasRef} width={CAMERA_WIDTH} height={CAMERA_HEIGHT} />
-          <figcaption>Combined red / blue / green marker mask</figcaption>
+          <figcaption>Combined red / green marker mask</figcaption>
         </figure>
         <figure className="wide-debug">
           <canvas ref={contourCanvasRef} width={CAMERA_WIDTH} height={CAMERA_HEIGHT} />
@@ -51,7 +51,7 @@ export function CameraDebugPanel({
       )}
       {tracking.cameraStatus === 'loading-opencv' && <p className="camera-note">Loading OpenCV.js...</p>}
       {tracking.cameraStatus === 'camera-on' && !tracking.handDetected && (
-        <p className="camera-note">Show the red marker to move the cursor. Bring blue near red to click.</p>
+        <p className="camera-note">Show the red marker to move the cursor. Hold it over a target for 0.6 seconds to click.</p>
       )}
     </section>
   );

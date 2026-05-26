@@ -67,10 +67,6 @@ export function StatusPanel({
           <dd>{tracking.fingertipEstimated ? 'Detected' : 'Not detected'}</dd>
         </div>
         <div>
-          <dt>Blue Click</dt>
-          <dd>{tracking.markerClickActive ? 'Active' : 'Inactive'}</dd>
-        </div>
-        <div>
           <dt>Green Resize</dt>
           <dd>{tracking.resizeDistance ? `${Math.round(tracking.resizeDistance)} px` : 'Inactive'}</dd>
         </div>
@@ -81,7 +77,7 @@ export function StatusPanel({
           <h3>Marker Roles</h3>
         </div>
         <p><span className="marker-dot red" /> Red: cursor</p>
-        <p><span className="marker-dot blue" /> Blue near red: click</p>
+        <p><span className="marker-dot red" /> Hold red for 0.6s: click</p>
         <p><span className="marker-dot green" /> Green distance: resize</p>
       </div>
     </section>

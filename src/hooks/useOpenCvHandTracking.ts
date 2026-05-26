@@ -5,7 +5,7 @@ import type { CursorPoint } from '../types/builder';
 
 type CameraStatus = 'idle' | 'loading-opencv' | 'camera-on' | 'camera-error';
 type TrackingPhase = 'loading' | 'tracking' | 'lost';
-type MarkerName = 'red' | 'blue' | 'green';
+type MarkerName = 'red' | 'green';
 
 interface MarkerDetection {
   center: CursorPoint;
@@ -39,7 +39,6 @@ export interface HandTrackingState {
   fingertipEstimated: boolean;
   cursor: CursorPoint | null;
   lastSeenAt: number;
-  markerClickActive: boolean;
   resizeDistance: number | null;
 }
 
@@ -64,7 +63,6 @@ export const DEFAULT_SKIN_THRESHOLDS: SkinThresholdConfig = {
 const MARKER = {
   minArea: 18,
   maxArea: 2200,
-  clickDistance: 58,
   resizeMinDistance: 36,
   smoothingWindow: 12,
   cursorDeadzone: 10,
@@ -73,7 +71,6 @@ const MARKER = {
     { lower: [0, 135, 105, 0], upper: [8, 255, 255, 255] },
     { lower: [172, 135, 105, 0], upper: [179, 255, 255, 255] },
   ],
-  blueRanges: [{ lower: [98, 125, 90, 0], upper: [126, 255, 255, 255] }],
   greenRanges: [{ lower: [48, 105, 80, 0], upper: [82, 255, 255, 255] }],
 } as const;
 
@@ -175,9 +172,7 @@ function drawMarker(cv: any, debug: any, marker: MarkerDetection | null, name: M
   const color =
     name === 'red'
       ? new cv.Scalar(239, 68, 68, 255)
-      : name === 'blue'
-        ? new cv.Scalar(37, 99, 235, 255)
-        : new cv.Scalar(34, 197, 94, 255);
+      : new cv.Scalar(34, 197, 94, 255);
 
   cv.rectangle(
     debug,
@@ -215,7 +210,6 @@ export function useOpenCvHandTracking() {
     fingertipEstimated: false,
     cursor: null,
     lastSeenAt: 0,
-    markerClickActive: false,
     resizeDistance: null,
   });
 
@@ -271,18 +265,15 @@ export function useOpenCvHandTracking() {
     cv.cvtColor(runtime.rgb, runtime.hsv, cv.COLOR_RGB2HSV);
     runtime.combinedMask.setTo(new cv.Scalar(0, 0, 0, 0));
 
-    // HSV marker segmentation: red is cursor, blue is click, green is resize distance.
+    // HSV marker segmentation: red is cursor, green controls resize distance.
     const red = findLargestMarker(cv, runtime, MARKER.redRanges);
-    const blue = findLargestMarker(cv, runtime, MARKER.blueRanges);
     const green = findLargestMarker(cv, runtime, MARKER.greenRanges);
 
     const debug = cv.Mat.zeros(CAMERA_HEIGHT, CAMERA_WIDTH, cv.CV_8UC4);
     drawMarker(cv, debug, red, 'red');
-    drawMarker(cv, debug, blue, 'blue');
     drawMarker(cv, debug, green, 'green');
 
     let cursor: CursorPoint | null = null;
-    let markerClickActive = false;
     let resizeDistance: number | null = null;
     const handPoints: CursorPoint[] = [];
 
@@ -296,20 +287,6 @@ export function useOpenCvHandTracking() {
       }
       lastCursorRef.current = cursor;
       lastSeenAtRef.current = performance.now();
-    }
-
-    if (red && blue) {
-      const blueViewport = cameraPointToViewport(blue.center);
-      handPoints.push(blueViewport);
-      const markerDistance = Math.hypot(red.center.x - blue.center.x, red.center.y - blue.center.y);
-      markerClickActive = markerDistance <= MARKER.clickDistance;
-      cv.line(
-        debug,
-        new cv.Point(red.center.x, red.center.y),
-        new cv.Point(blue.center.x, blue.center.y),
-        markerClickActive ? new cv.Scalar(250, 204, 21, 255) : new cv.Scalar(148, 163, 184, 255),
-        2,
-      );
     }
 
     if (red && green) {
@@ -338,7 +315,7 @@ export function useOpenCvHandTracking() {
     cv.imshow(contourCanvas, debug);
     debug.delete();
 
-    const markerCount = [red, blue, green].filter(Boolean).length;
+    const markerCount = [red, green].filter(Boolean).length;
     setState({
       cameraStatus: 'camera-on',
       cameraError: '',
@@ -349,11 +326,10 @@ export function useOpenCvHandTracking() {
       handDetected: Boolean(cursor || withinGrace),
       handCount: markerCount,
       handPoints,
-      contourDetected: Boolean(red || blue || green),
+      contourDetected: Boolean(red || green),
       fingertipEstimated: Boolean(red),
       cursor,
       lastSeenAt: lastSeenAtRef.current,
-      markerClickActive,
       resizeDistance: resizeDistance && resizeDistance >= MARKER.resizeMinDistance ? resizeDistance : null,
     });
 
