@@ -5,10 +5,17 @@ interface CanvasElementProps {
   element: BuilderElement;
   selected: boolean;
   dragging: boolean;
+  resizeHandleActive?: boolean;
   interactive?: boolean;
 }
 
-export function CanvasElement({ element, selected, dragging, interactive = true }: CanvasElementProps) {
+export function CanvasElement({
+  element,
+  selected,
+  dragging,
+  resizeHandleActive = false,
+  interactive = true,
+}: CanvasElementProps) {
   const style = {
     left: element.x,
     top: element.y,
@@ -42,6 +49,14 @@ export function CanvasElement({ element, selected, dragging, interactive = true 
         <span className="image-label">{element.text}</span>
       ) : (
         <span>{element.text}</span>
+      )}
+      {selected && resizeHandleActive && (
+        <span
+          className="resize-handle"
+          data-gesture-kind="resize-handle"
+          data-gesture-value={element.id}
+          aria-hidden="true"
+        />
       )}
     </div>
   );

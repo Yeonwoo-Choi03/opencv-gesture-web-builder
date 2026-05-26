@@ -24,6 +24,6 @@ export interface CursorPoint {
 }
 
 export interface GestureTarget {
-  kind: 'tool' | 'element' | 'key' | 'canvas';
+  kind: 'tool' | 'element' | 'resize-handle' | 'key' | 'canvas';
   value: string;
 }

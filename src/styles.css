@@ -257,6 +257,30 @@ a {
   box-shadow: 0 16px 30px rgba(37, 99, 235, 0.24);
 }
 
+.resize-handle {
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+  z-index: 3;
+  width: 18px;
+  height: 18px;
+  border: 3px solid #ffffff;
+  border-radius: 50%;
+  background: #2563eb;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.32);
+}
+
+.resize-handle::after {
+  position: absolute;
+  right: 2px;
+  bottom: 1px;
+  width: 6px;
+  height: 6px;
+  border-right: 2px solid #ffffff;
+  border-bottom: 2px solid #ffffff;
+  content: "";
+}
+
 .canvas-element-header {
   justify-content: flex-start;
   padding: 0 28px;
@@ -487,7 +511,8 @@ a {
   padding-bottom: 12px;
 }
 
-.text-editor-bar {
+.text-editor-bar,
+.image-picker-bar {
   display: grid;
   grid-template-columns: 92px 1fr;
   gap: 10px;
@@ -499,21 +524,26 @@ a {
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.07);
 }
 
-.text-editor-bar span {
+.text-editor-bar span,
+.image-picker-bar span {
   color: #475569;
   font-size: 13px;
   font-weight: 700;
 }
 
-.text-editor-bar textarea {
+.text-editor-bar textarea,
+.image-picker-bar input {
   width: 100%;
   min-height: 46px;
-  resize: vertical;
   padding: 8px 10px;
   color: #172033;
   border: 1px solid #ccd6e5;
   border-radius: 8px;
   font: inherit;
+}
+
+.text-editor-bar textarea {
+  resize: vertical;
 }
 
 .hidden-file-input {

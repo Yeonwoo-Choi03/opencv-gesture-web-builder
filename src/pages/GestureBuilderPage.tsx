@@ -11,6 +11,9 @@ import type { BuilderElement, BuilderElementType, CursorPoint, GestureTarget } f
 import { createBuilderElement } from '../utils/elements';
 import { clamp, distance, pointInRect, viewportToLocal } from '../utils/geometry';
 
+const MIN_ELEMENT_WIDTH = 60;
+const MIN_ELEMENT_HEIGHT = 36;
+
 function readGestureTarget(cursor: CursorPoint): GestureTarget | null {
   const nodes = document.elementsFromPoint(cursor.x, cursor.y) as HTMLElement[];
   const node = nodes.find((element) => element.dataset?.gestureKind && element.dataset?.gestureValue);
@@ -60,20 +63,14 @@ export function GestureBuilderPage() {
   const [elements, setElements] = useState<BuilderElement[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [resizingId, setResizingId] = useState<string | null>(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const [resizeOffset, setResizeOffset] = useState({ x: 0, y: 0 });
   const [resizeMode, setResizeMode] = useState(false);
   const [dwellProgress, setDwellProgress] = useState(0);
   const [gestureState, setGestureState] = useState('Waiting');
   const hoverRef = useRef<{ target: string; point: CursorPoint; startedAt: number } | null>(null);
   const lastClickAtRef = useRef(0);
-  const scaleRef = useRef<{
-    elementId: string;
-    startDistance: number;
-    startWidth: number;
-    startHeight: number;
-    centerX: number;
-    centerY: number;
-  } | null>(null);
 
   const selectedElement = useMemo(
     () => elements.find((element) => element.id === selectedId),
@@ -163,16 +160,16 @@ export function GestureBuilderPage() {
         if (target.value.startsWith('add:')) {
           addElement(target.value.replace('add:', '') as BuilderElementType, cursor);
           setResizeMode(false);
-          scaleRef.current = null;
+          setResizingId(null);
           return;
         }
         if (target.value === 'resize') {
           if (selectedId) {
             setDraggingId(null);
-            scaleRef.current = null;
+            setResizingId(null);
             setResizeMode((current) => {
               const next = !current;
-              setGestureState(next ? 'Resize mode on' : 'Resize mode off');
+              setGestureState(next ? 'Resize mode on / grab corner handle' : 'Resize mode off');
               return next;
             });
           } else {
@@ -185,7 +182,7 @@ export function GestureBuilderPage() {
             setElements((current) => current.filter((element) => element.id !== selectedId));
             setDraggingId(null);
             setResizeMode(false);
-            scaleRef.current = null;
+            setResizingId(null);
             setSelectedId(null);
             setGestureState('Deleted');
           }
@@ -195,10 +192,34 @@ export function GestureBuilderPage() {
           setElements([]);
           setSelectedId(null);
           setDraggingId(null);
+          setResizingId(null);
           setResizeMode(false);
-          scaleRef.current = null;
           setGestureState('Canvas cleared');
         }
+        return;
+      }
+
+      if (target.kind === 'resize-handle') {
+        if (resizingId === target.value) {
+          setResizingId(null);
+          setGestureState('Resize placed');
+          return;
+        }
+
+        const canvasRect = canvasRef.current?.getBoundingClientRect();
+        const element = elements.find((item) => item.id === target.value);
+        if (!canvasRect || !element || !cursor) return;
+        const local = viewportToLocal(cursor, canvasRect);
+        setSelectedId(element.id);
+        bringElementToFront(element.id);
+        setDraggingId(null);
+        setResizingId(element.id);
+        setResizeMode(true);
+        setResizeOffset({
+          x: local.x - (element.x + element.width),
+          y: local.y - (element.y + element.height),
+        });
+        setGestureState('Resizing / hold handle 0.6s to place');
         return;
       }
 
@@ -215,9 +236,15 @@ export function GestureBuilderPage() {
         const local = viewportToLocal(cursor, canvasRect);
         setSelectedId(element.id);
         bringElementToFront(element.id);
+        if (resizeMode) {
+          setDraggingId(null);
+          setResizingId(null);
+          setGestureState('Resize mode / grab corner handle');
+          return;
+        }
         setDraggingId(element.id);
         setResizeMode(false);
-        scaleRef.current = null;
+        setResizingId(null);
         setDragOffset({ x: local.x - element.x, y: local.y - element.y });
         setGestureState(element.type === 'text' ? 'Selected / Typing' : 'Dragging / hold 0.6s to place');
         return;
@@ -227,61 +254,41 @@ export function GestureBuilderPage() {
         updateText(target.value);
       }
     },
-    [addElement, bringElementToFront, draggingId, elements, selectedId, updateText],
+    [addElement, bringElementToFront, draggingId, elements, resizeMode, resizingId, selectedId, updateText],
   );
 
   useEffect(() => {
     const cursor = tracking.cursor;
-
-    if (resizeMode && selectedElement && tracking.handPoints.length >= 2) {
-      const canvasRect = canvasRef.current?.getBoundingClientRect();
-      const currentDistance = distance(tracking.handPoints[0], tracking.handPoints[1]);
-
-      if (canvasRect && currentDistance > 40) {
-        setDraggingId(null);
-        hoverRef.current = null;
-        setDwellProgress(0);
-
-        if (!scaleRef.current || scaleRef.current.elementId !== selectedElement.id) {
-          scaleRef.current = {
-            elementId: selectedElement.id,
-            startDistance: currentDistance,
-            startWidth: selectedElement.width,
-            startHeight: selectedElement.height,
-            centerX: selectedElement.x + selectedElement.width / 2,
-            centerY: selectedElement.y + selectedElement.height / 2,
-          };
-        }
-
-        const scale = clamp(currentDistance / scaleRef.current.startDistance, 0.45, 2.4);
-        const nextWidth = clamp(scaleRef.current.startWidth * scale, 60, canvasRect.width - 8);
-        const nextHeight = clamp(scaleRef.current.startHeight * scale, 36, canvasRect.height - 8);
-
-        setElements((current) =>
-          current.map((element) =>
-            element.id === selectedElement.id
-              ? {
-                  ...element,
-                  width: nextWidth,
-                  height: nextHeight,
-                  x: clamp(scaleRef.current!.centerX - nextWidth / 2, 4, canvasRect.width - nextWidth - 4),
-                  y: clamp(scaleRef.current!.centerY - nextHeight / 2, 4, canvasRect.height - nextHeight - 4),
-                }
-              : element,
-          ),
-        );
-        setGestureState('Scaling / spread or pinch hands');
-        return;
-      }
-    } else {
-      scaleRef.current = null;
-    }
 
     if (!cursor) {
       hoverRef.current = null;
       setDwellProgress(0);
       setGestureState(tracking.cameraStatus === 'camera-on' ? 'No Hand' : 'Waiting');
       return;
+    }
+
+    if (resizingId) {
+      const canvasRect = canvasRef.current?.getBoundingClientRect();
+      const resizingElement = elements.find((element) => element.id === resizingId);
+      if (canvasRect && resizingElement) {
+        const local = viewportToLocal(cursor, canvasRect);
+        setElements((current) =>
+          current.map((element) => {
+            if (element.id !== resizingId) return element;
+            const nextWidth = clamp(
+              local.x - resizeOffset.x - element.x,
+              MIN_ELEMENT_WIDTH,
+              canvasRect.width - element.x - 4,
+            );
+            const nextHeight = clamp(
+              local.y - resizeOffset.y - element.y,
+              MIN_ELEMENT_HEIGHT,
+              canvasRect.height - element.y - 4,
+            );
+            return { ...element, width: nextWidth, height: nextHeight };
+          }),
+        );
+      }
     }
 
     if (draggingId) {
@@ -311,14 +318,26 @@ export function GestureBuilderPage() {
     if (!target) {
       hoverRef.current = null;
       setDwellProgress(0);
-      setGestureState(draggingId ? 'Dragging / hold 0.6s to place' : 'Tracking');
+      setGestureState(
+        resizingId
+          ? 'Resizing / hold handle 0.6s to place'
+          : draggingId
+            ? 'Dragging / hold 0.6s to place'
+            : 'Tracking',
+      );
       return;
     }
 
     if (!hover || hover.target !== targetKey || distance(hover.point, cursor) > DWELL.hoverResetDistance) {
       hoverRef.current = { target: targetKey, point: cursor, startedAt: now };
       setDwellProgress(0);
-      setGestureState(draggingId ? 'Dragging / hold 0.6s to place' : 'Hover');
+      setGestureState(
+        resizingId
+          ? 'Resizing / hold handle 0.6s to place'
+          : draggingId
+            ? 'Dragging / hold 0.6s to place'
+            : 'Hover',
+      );
       return;
     }
 
@@ -326,10 +345,14 @@ export function GestureBuilderPage() {
     setDwellProgress(progress);
       setGestureState(
         progress >= 1
-          ? draggingId
+          ? resizingId
+            ? 'Resize placed'
+            : draggingId
             ? 'Placed'
             : 'Dwell Click'
-          : draggingId
+          : resizingId
+            ? 'Resizing / hold handle 0.6s to place'
+            : draggingId
             ? 'Dragging / hold 0.6s to place'
             : 'Dwell Clicking',
       );
@@ -345,6 +368,9 @@ export function GestureBuilderPage() {
     dragOffset.y,
     draggingId,
     elements,
+    resizeOffset.x,
+    resizeOffset.y,
+    resizingId,
     runAction,
     selectedElement,
     tracking.cameraStatus,
@@ -356,8 +382,8 @@ export function GestureBuilderPage() {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setDraggingId(null);
+        setResizingId(null);
         setResizeMode(false);
-        scaleRef.current = null;
         setGestureState('Dropped');
       }
       if (selectedElement?.type === 'text' && event.target === document.body) {
@@ -381,8 +407,8 @@ export function GestureBuilderPage() {
         setElements((current) => current.filter((element) => element.id !== selectedId));
         setSelectedId(null);
         setDraggingId(null);
+        setResizingId(null);
         setResizeMode(false);
-        scaleRef.current = null;
       }
     };
     window.addEventListener('keydown', onKeyDown);
@@ -415,6 +441,7 @@ export function GestureBuilderPage() {
                 element={element}
                 selected={element.id === selectedId}
                 dragging={element.id === draggingId}
+                resizeHandleActive={resizeMode && element.id === selectedId}
               />
             ))}
             {elements.length === 0 && (
@@ -443,6 +470,12 @@ export function GestureBuilderPage() {
                 onChange={(event) => updateSelectedText(event.target.value)}
                 rows={2}
               />
+            </label>
+          )}
+          {selectedElement?.type === 'image' && (
+            <label className="image-picker-bar">
+              <span>Image file</span>
+              <input type="file" accept="image/*" onChange={handleImageFileChange} />
             </label>
           )}
           <VirtualKeyboard visible={selectedElement?.type === 'text'} />
