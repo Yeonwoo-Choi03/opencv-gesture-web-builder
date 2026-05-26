@@ -40,6 +40,8 @@ export function Toolbar({ canUploadImage, onUploadImage }: ToolbarProps) {
           className="tool-button action"
           disabled={!canUploadImage}
           onClick={onUploadImage}
+          data-gesture-kind="tool"
+          data-gesture-value="upload-image"
         >
           Upload Image
         </button>

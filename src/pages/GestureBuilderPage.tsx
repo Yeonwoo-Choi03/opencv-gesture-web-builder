@@ -177,6 +177,10 @@ export function GestureBuilderPage() {
           }
           return;
         }
+        if (target.value === 'upload-image') {
+          openImagePicker();
+          return;
+        }
         if (target.value === 'delete') {
           if (selectedId) {
             setElements((current) => current.filter((element) => element.id !== selectedId));
@@ -254,7 +258,7 @@ export function GestureBuilderPage() {
         updateText(target.value);
       }
     },
-    [addElement, bringElementToFront, draggingId, elements, resizeMode, resizingId, selectedId, updateText],
+    [addElement, bringElementToFront, draggingId, elements, openImagePicker, resizeMode, resizingId, selectedId, updateText],
   );
 
   useEffect(() => {
@@ -475,6 +479,15 @@ export function GestureBuilderPage() {
           {selectedElement?.type === 'image' && (
             <label className="image-picker-bar">
               <span>Image file</span>
+              <button
+                type="button"
+                className="image-picker-button"
+                onClick={openImagePicker}
+                data-gesture-kind="tool"
+                data-gesture-value="upload-image"
+              >
+                Choose Image
+              </button>
               <input type="file" accept="image/*" onChange={handleImageFileChange} />
             </label>
           )}
