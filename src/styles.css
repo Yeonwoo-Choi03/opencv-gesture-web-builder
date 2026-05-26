@@ -421,6 +421,39 @@ a {
   padding: 0 14px 14px;
 }
 
+.marker-guide {
+  display: grid;
+  gap: 8px;
+  padding: 0 14px 14px;
+}
+
+.marker-guide p {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: #475569;
+  font-size: 13px;
+}
+
+.marker-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+
+.marker-dot.red {
+  background: #ef4444;
+}
+
+.marker-dot.blue {
+  background: #2563eb;
+}
+
+.marker-dot.green {
+  background: #22c55e;
+}
+
 .threshold-heading,
 .threshold-row {
   display: grid;

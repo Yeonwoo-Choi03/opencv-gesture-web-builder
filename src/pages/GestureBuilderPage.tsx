@@ -29,6 +29,15 @@ function readGestureTarget(cursor: CursorPoint): GestureTarget | null {
 }
 
 function getCalibrationMessage(phase: string) {
+  if (phase === 'lost') {
+    return {
+      title: 'Marker tracking lost',
+      body: 'Show the red marker to move the cursor. Bring the blue marker near red to click.',
+    };
+  }
+
+  return null;
+
   if (phase === 'background-calibration') {
     return {
       title: '배경 캘리브레이션 중',
@@ -76,6 +85,15 @@ export function GestureBuilderPage() {
   const [gestureState, setGestureState] = useState('Waiting');
   const hoverRef = useRef<{ target: string; point: CursorPoint; startedAt: number } | null>(null);
   const lastClickAtRef = useRef(0);
+  const markerClickWasActiveRef = useRef(false);
+  const markerScaleRef = useRef<{
+    elementId: string;
+    startDistance: number;
+    startWidth: number;
+    startHeight: number;
+    centerX: number;
+    centerY: number;
+  } | null>(null);
 
   const selectedElement = useMemo(
     () => elements.find((element) => element.id === selectedId),
@@ -199,18 +217,21 @@ export function GestureBuilderPage() {
           setResizeMode(false);
           setDwellProgress(0);
           setGestureState('Final view');
+          markerScaleRef.current = null;
           return;
         }
         if (target.value.startsWith('add:')) {
           addElement(target.value.replace('add:', '') as BuilderElementType, cursor);
           setResizeMode(false);
           setResizingId(null);
+          markerScaleRef.current = null;
           return;
         }
         if (target.value === 'resize') {
           if (selectedId) {
             setDraggingId(null);
             setResizingId(null);
+            markerScaleRef.current = null;
             setResizeMode((current) => {
               const next = !current;
               setGestureState(next ? 'Resize mode on / grab corner handle' : 'Resize mode off');
@@ -231,6 +252,7 @@ export function GestureBuilderPage() {
             setDraggingId(null);
             setResizeMode(false);
             setResizingId(null);
+            markerScaleRef.current = null;
             setSelectedId(null);
             setGestureState('Deleted');
           }
@@ -242,6 +264,7 @@ export function GestureBuilderPage() {
           setDraggingId(null);
           setResizingId(null);
           setResizeMode(false);
+          markerScaleRef.current = null;
           setGestureState('Canvas cleared');
         }
         return;
@@ -251,6 +274,7 @@ export function GestureBuilderPage() {
         if (resizingId === target.value) {
           setResizingId(null);
           setGestureState('Resize placed');
+          markerScaleRef.current = null;
           return;
         }
 
@@ -263,6 +287,7 @@ export function GestureBuilderPage() {
         setDraggingId(null);
         setResizingId(element.id);
         setResizeMode(true);
+        markerScaleRef.current = null;
         setResizeOffset({
           x: local.x - (element.x + element.width),
           y: local.y - (element.y + element.height),
@@ -287,12 +312,14 @@ export function GestureBuilderPage() {
         if (resizeMode) {
           setDraggingId(null);
           setResizingId(null);
+          markerScaleRef.current = null;
           setGestureState('Resize mode / grab corner handle');
           return;
         }
         setDraggingId(element.id);
         setResizeMode(false);
         setResizingId(null);
+        markerScaleRef.current = null;
         setDragOffset({ x: local.x - element.x, y: local.y - element.y });
         setGestureState(element.type === 'text' ? 'Selected / Typing' : 'Dragging / hold 0.6s to place');
         return;
@@ -313,6 +340,49 @@ export function GestureBuilderPage() {
       setDwellProgress(0);
       setGestureState(tracking.cameraStatus === 'camera-on' ? 'No Hand' : 'Waiting');
       return;
+    }
+
+    if (resizeMode && selectedElement && tracking.resizeDistance && !resizingId) {
+      const canvasRect = canvasRef.current?.getBoundingClientRect();
+
+      if (canvasRect) {
+        setDraggingId(null);
+        hoverRef.current = null;
+        setDwellProgress(0);
+
+        if (!markerScaleRef.current || markerScaleRef.current.elementId !== selectedElement.id) {
+          markerScaleRef.current = {
+            elementId: selectedElement.id,
+            startDistance: tracking.resizeDistance,
+            startWidth: selectedElement.width,
+            startHeight: selectedElement.height,
+            centerX: selectedElement.x + selectedElement.width / 2,
+            centerY: selectedElement.y + selectedElement.height / 2,
+          };
+        }
+
+        const scale = clamp(tracking.resizeDistance / markerScaleRef.current.startDistance, 0.45, 2.5);
+        const nextWidth = clamp(markerScaleRef.current.startWidth * scale, MIN_ELEMENT_WIDTH, canvasRect.width - 8);
+        const nextHeight = clamp(markerScaleRef.current.startHeight * scale, MIN_ELEMENT_HEIGHT, canvasRect.height - 8);
+
+        setElements((current) =>
+          current.map((element) =>
+            element.id === selectedElement.id
+              ? {
+                  ...element,
+                  width: nextWidth,
+                  height: nextHeight,
+                  x: clamp(markerScaleRef.current!.centerX - nextWidth / 2, 4, canvasRect.width - nextWidth - 4),
+                  y: clamp(markerScaleRef.current!.centerY - nextHeight / 2, 4, canvasRect.height - nextHeight - 4),
+                }
+              : element,
+          ),
+        );
+        setGestureState('Marker resize / red-green distance');
+        return;
+      }
+    } else if (!tracking.resizeDistance) {
+      markerScaleRef.current = null;
     }
 
     if (resizingId) {
@@ -362,6 +432,20 @@ export function GestureBuilderPage() {
     const targetKey = target ? `${target.kind}:${target.value}` : 'none';
     const now = performance.now();
     const hover = hoverRef.current;
+
+    if (tracking.markerClickActive && !markerClickWasActiveRef.current && target && now - lastClickAtRef.current > DWELL.cooldownMs) {
+      markerClickWasActiveRef.current = true;
+      lastClickAtRef.current = now;
+      hoverRef.current = null;
+      setDwellProgress(0);
+      setGestureState('Marker Click');
+      runAction(target, cursor);
+      return;
+    }
+
+    if (!tracking.markerClickActive) {
+      markerClickWasActiveRef.current = false;
+    }
 
     if (!target) {
       hoverRef.current = null;
@@ -419,11 +503,14 @@ export function GestureBuilderPage() {
     resizeOffset.x,
     resizeOffset.y,
     resizingId,
+    resizeMode,
     runAction,
     selectedElement,
     tracking.cameraStatus,
     tracking.cursor,
     tracking.handPoints,
+    tracking.markerClickActive,
+    tracking.resizeDistance,
   ]);
 
   useEffect(() => {
@@ -432,6 +519,7 @@ export function GestureBuilderPage() {
         setDraggingId(null);
         setResizingId(null);
         setResizeMode(false);
+        markerScaleRef.current = null;
         setGestureState('Dropped');
       }
       if (selectedElement?.type === 'text' && event.target === document.body) {
@@ -457,6 +545,7 @@ export function GestureBuilderPage() {
         setDraggingId(null);
         setResizingId(null);
         setResizeMode(false);
+        markerScaleRef.current = null;
       }
     };
     window.addEventListener('keydown', onKeyDown);
@@ -497,6 +586,7 @@ export function GestureBuilderPage() {
                   setDraggingId(null);
                   setResizingId(null);
                   setResizeMode(false);
+                  markerScaleRef.current = null;
                   setGestureState('Final view');
                 }}
               >
@@ -518,7 +608,7 @@ export function GestureBuilderPage() {
                 손가락 커서를 도구 버튼 위에 0.6초 머물러 요소를 추가하세요.
               </div>
             )}
-            {tracking.phase === 'hand-registration' && (
+            {false && (
               <div
                 className="registration-box"
                 style={{
@@ -578,7 +668,7 @@ export function GestureBuilderPage() {
         <div className="calibration-overlay">
           <div className="calibration-card">
             <span className="status-pill good">
-              {tracking.phase === 'background-calibration' ? 'Shift + R: full reset' : 'R: hand registration'}
+              Red marker: cursor
             </span>
             <h2>{calibrationMessage.title}</h2>
             <p>{calibrationMessage.body}</p>

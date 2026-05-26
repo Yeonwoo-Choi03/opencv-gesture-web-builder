@@ -1,5 +1,5 @@
 import type { BuilderElement } from '../types/builder';
-import { DEFAULT_SKIN_THRESHOLDS, type HandTrackingState, type SkinThresholdConfig } from '../hooks/useOpenCvHandTracking';
+import type { HandTrackingState, SkinThresholdConfig } from '../hooks/useOpenCvHandTracking';
 
 interface StatusPanelProps {
   selectedElement: BuilderElement | undefined;
@@ -19,17 +19,7 @@ export function StatusPanel({
   dwellProgress,
   dragging,
   resizeMode,
-  thresholds,
-  onThresholdChange,
 }: StatusPanelProps) {
-  const updateThreshold = (key: keyof SkinThresholdConfig, value: number) => {
-    onThresholdChange({ ...thresholds, [key]: value });
-  };
-
-  const resetThresholds = () => {
-    onThresholdChange(DEFAULT_SKIN_THRESHOLDS);
-  };
-
   return (
     <section className="panel status-panel">
       <div className="panel-heading">
@@ -57,7 +47,7 @@ export function StatusPanel({
           <dd>{tracking.registeredHand ? 'Yes' : 'No'}</dd>
         </div>
         <div>
-          <dt>Hands</dt>
+          <dt>Markers</dt>
           <dd>{tracking.handCount}</dd>
         </div>
         <div>
@@ -73,44 +63,26 @@ export function StatusPanel({
           <dd>{Math.round(dwellProgress * 100)}%</dd>
         </div>
         <div>
-          <dt>Skin Mask</dt>
-          <dd>{tracking.cameraStatus === 'camera-on' ? 'Skin + motion' : 'Waiting'}</dd>
+          <dt>Red Cursor</dt>
+          <dd>{tracking.fingertipEstimated ? 'Detected' : 'Not detected'}</dd>
         </div>
         <div>
-          <dt>Contour</dt>
-          <dd>{tracking.contourDetected ? 'Detected' : 'Not detected'}</dd>
+          <dt>Blue Click</dt>
+          <dd>{tracking.markerClickActive ? 'Active' : 'Inactive'}</dd>
         </div>
         <div>
-          <dt>Fingertip</dt>
-          <dd>{tracking.fingertipEstimated ? 'Estimated' : 'Not estimated'}</dd>
+          <dt>Green Resize</dt>
+          <dd>{tracking.resizeDistance ? `${Math.round(tracking.resizeDistance)} px` : 'Inactive'}</dd>
         </div>
       </dl>
 
-      <div className="threshold-controls">
+      <div className="marker-guide">
         <div className="threshold-heading">
-          <h3>Skin Threshold</h3>
-          <button type="button" onClick={resetThresholds}>Reset</button>
+          <h3>Marker Roles</h3>
         </div>
-        {[
-          ['crMin', 'Cr Min', 100, 170],
-          ['crMax', 'Cr Max', 140, 210],
-          ['cbMin', 'Cb Min', 60, 120],
-          ['cbMax', 'Cb Max', 100, 160],
-          ['hueMax', 'Hue Max', 15, 55],
-          ['saturationMin', 'Sat Min', 5, 90],
-        ].map(([key, label, min, max]) => (
-          <label className="threshold-row" key={key}>
-            <span>{label}</span>
-            <input
-              type="range"
-              min={min}
-              max={max}
-              value={thresholds[key as keyof SkinThresholdConfig]}
-              onChange={(event) => updateThreshold(key as keyof SkinThresholdConfig, Number(event.target.value))}
-            />
-            <strong>{thresholds[key as keyof SkinThresholdConfig]}</strong>
-          </label>
-        ))}
+        <p><span className="marker-dot red" /> Red: cursor</p>
+        <p><span className="marker-dot blue" /> Blue near red: click</p>
+        <p><span className="marker-dot green" /> Green distance: resize</p>
       </div>
     </section>
   );
