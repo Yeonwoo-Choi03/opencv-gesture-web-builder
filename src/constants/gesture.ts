@@ -1,6 +1,4 @@
 export const OPENCV_SCRIPT_URL = 'https://docs.opencv.org/4.10.0/opencv.js';
-export const FACE_CASCADE_URL = '/models/haarcascade_frontalface_default.xml';
-export const FACE_CASCADE_FILE = 'haarcascade_frontalface_default.xml';
 
 export const CAMERA_WIDTH = 320;
 export const CAMERA_HEIGHT = 240;
@@ -22,7 +20,6 @@ export const HAND_DETECTION = {
     heightRatio: 0.48,
   },
   backgroundDiffThreshold: 24,
-  facePadding: 18,
   headReject: {
     minArea: 4200,
     minAspectRatio: 0.52,

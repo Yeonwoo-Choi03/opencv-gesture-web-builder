@@ -2,8 +2,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   CAMERA_HEIGHT,
   CAMERA_WIDTH,
-  FACE_CASCADE_FILE,
-  FACE_CASCADE_URL,
   HAND_DETECTION,
   OPENCV_SCRIPT_URL,
 } from '../constants/gesture';
@@ -23,7 +21,6 @@ export interface HandTrackingState {
   handDetected: boolean;
   handCount: number;
   handPoints: CursorPoint[];
-  faceDetected: boolean;
   contourDetected: boolean;
   fingertipEstimated: boolean;
   cursor: CursorPoint | null;
@@ -47,9 +44,9 @@ interface CvRuntime {
   motionMask: any;
   movingSkinMask: any;
   cleanedMask: any;
+  candidateMask: any;
   hierarchy: any;
   contours: any;
-  faces: any;
   kernel: any;
   cap: any;
 }
@@ -88,29 +85,6 @@ function loadOpenCv() {
     script.onerror = () => reject(new Error('OpenCV.js failed to load.'));
     document.body.appendChild(script);
   });
-}
-
-async function loadFaceCascade() {
-  const cv = window.cv;
-  const response = await fetch(FACE_CASCADE_URL);
-  if (!response.ok) {
-    throw new Error('Face cascade file failed to load.');
-  }
-
-  const data = new Uint8Array(await response.arrayBuffer());
-  try {
-    cv.FS_unlink(`/${FACE_CASCADE_FILE}`);
-  } catch {
-    // The file may not exist on first load.
-  }
-  cv.FS_createDataFile('/', FACE_CASCADE_FILE, data, true, false, false);
-
-  const classifier = new cv.CascadeClassifier();
-  if (!classifier.load(FACE_CASCADE_FILE)) {
-    classifier.delete();
-    throw new Error('Face cascade could not be initialized.');
-  }
-  return classifier;
 }
 
 function average(points: CursorPoint[]) {
@@ -194,41 +168,12 @@ function isHeadLikeContour(cv: any, contour: any, area: number, rect: any) {
   );
 }
 
-function eraseStaticFaceRegions(cv: any, mask: any, movingSkinMask: any, faces: any) {
-  const faceRects: Array<{ x: number; y: number; width: number; height: number }> = [];
-  for (let i = 0; i < faces.size(); i += 1) {
-    const face = faces.get(i);
-    const padding = HAND_DETECTION.facePadding;
-    const x = clamp(face.x - padding, 0, CAMERA_WIDTH - 1);
-    const y = clamp(face.y - padding, 0, CAMERA_HEIGHT - 1);
-    const right = clamp(face.x + face.width + padding, 0, CAMERA_WIDTH);
-    const bottom = clamp(face.y + face.height + padding, 0, CAMERA_HEIGHT);
-    const width = Math.max(0, right - x);
-    const height = Math.max(0, bottom - y);
-
-    if (width > 0 && height > 0) {
-      const faceRect = new cv.Rect(x, y, width, height);
-      const targetRoi = mask.roi(faceRect);
-      const movingSkinRoi = movingSkinMask.roi(faceRect);
-
-      // Inside a detected face box, keep only moving skin. This suppresses the static face
-      // while still allowing a hand passing in front of the face to remain trackable.
-      movingSkinRoi.copyTo(targetRoi);
-      targetRoi.delete();
-      movingSkinRoi.delete();
-      faceRects.push({ x, y, width, height });
-    }
-  }
-  return faceRects;
-}
-
 export function useOpenCvHandTracking() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const maskCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const contourCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const runtimeRef = useRef<CvRuntime | null>(null);
-  const faceClassifierRef = useRef<any | null>(null);
   const animationRef = useRef<number | null>(null);
   const smoothedPointsRef = useRef<CursorPoint[]>([]);
   const lastCursorRef = useRef<CursorPoint | null>(null);
@@ -239,6 +184,7 @@ export function useOpenCvHandTracking() {
   const registeredHandRef = useRef<RegisteredHandProfile | null>(null);
   const backgroundReadyRef = useRef(false);
   const registrationSamplesRef = useRef<RegisteredHandProfile[]>([]);
+  const handRegistrationStartedAtRef = useRef<number | null>(null);
 
   const [state, setState] = useState<HandTrackingState>({
     cameraStatus: 'idle',
@@ -250,7 +196,6 @@ export function useOpenCvHandTracking() {
     handDetected: false,
     handCount: 0,
     handPoints: [],
-    faceDetected: false,
     contourDetected: false,
     fingertipEstimated: false,
     cursor: null,
@@ -271,10 +216,12 @@ export function useOpenCvHandTracking() {
       backgroundReadyRef.current = false;
       registeredHandRef.current = null;
       registrationSamplesRef.current = [];
+      handRegistrationStartedAtRef.current = null;
     }
     if (phase === 'hand-registration') {
       registeredHandRef.current = null;
       registrationSamplesRef.current = [];
+      handRegistrationStartedAtRef.current = null;
     }
     resetTrackingMemory();
   }, [resetTrackingMemory]);
@@ -309,9 +256,9 @@ export function useOpenCvHandTracking() {
       motionMask: new cv.Mat(CAMERA_HEIGHT, CAMERA_WIDTH, cv.CV_8UC1),
       movingSkinMask: new cv.Mat(CAMERA_HEIGHT, CAMERA_WIDTH, cv.CV_8UC1),
       cleanedMask: new cv.Mat(),
+      candidateMask: new cv.Mat(CAMERA_HEIGHT, CAMERA_WIDTH, cv.CV_8UC1),
       hierarchy: new cv.Mat(),
       contours: new cv.MatVector(),
-      faces: new cv.RectVector(),
       kernel: cv.Mat.ones(5, 5, cv.CV_8U),
       cap: new cv.VideoCapture(videoRef.current),
     };
@@ -343,21 +290,6 @@ export function useOpenCvHandTracking() {
     cv.GaussianBlur(runtime.gray, runtime.gray, new cv.Size(7, 7), 0);
     cv.cvtColor(runtime.rgb, runtime.hsv, cv.COLOR_RGB2HSV);
     cv.cvtColor(runtime.rgb, runtime.ycrcb, cv.COLOR_RGB2YCrCb);
-
-    runtime.faces.delete();
-    runtime.faces = new cv.RectVector();
-    const faceClassifier = faceClassifierRef.current;
-    if (faceClassifier && (typeof faceClassifier.empty !== 'function' || !faceClassifier.empty())) {
-      faceClassifier.detectMultiScale(
-        runtime.gray,
-        runtime.faces,
-        1.12,
-        4,
-        0,
-        new cv.Size(46, 46),
-        new cv.Size(180, 180),
-      );
-    }
 
     const hsvLower = new cv.Mat(runtime.hsv.rows, runtime.hsv.cols, runtime.hsv.type(), HAND_DETECTION.hsvLower);
     const hsvUpper = new cv.Mat(runtime.hsv.rows, runtime.hsv.cols, runtime.hsv.type(), HAND_DETECTION.hsvUpper);
@@ -400,7 +332,6 @@ export function useOpenCvHandTracking() {
         handDetected: false,
         handCount: 0,
         handPoints: [],
-        faceDetected: false,
         contourDetected: false,
         fingertipEstimated: false,
         cursor: null,
@@ -445,10 +376,6 @@ export function useOpenCvHandTracking() {
     }
     runtime.gray.copyTo(runtime.prevGray);
 
-    // OpenCV Haar Cascade detects face boxes first. Inside those boxes, static skin is removed,
-    // but moving skin is preserved so a hand crossing the face area is not erased wholesale.
-    const faceRects = eraseStaticFaceRegions(cv, runtime.cleanedMask, runtime.movingSkinMask, runtime.faces);
-
     hsvLower.delete();
     hsvUpper.delete();
     skinLower.delete();
@@ -459,7 +386,15 @@ export function useOpenCvHandTracking() {
     runtime.contours = new cv.MatVector();
     runtime.hierarchy = new cv.Mat();
 
-    cv.findContours(runtime.cleanedMask, runtime.contours, runtime.hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+    if (phase === 'hand-registration') {
+      runtime.foregroundSkinMask.copyTo(runtime.candidateMask);
+    } else if (registeredHandRef.current) {
+      runtime.cleanedMask.copyTo(runtime.candidateMask);
+    } else {
+      runtime.foregroundSkinMask.copyTo(runtime.candidateMask);
+    }
+
+    cv.findContours(runtime.candidateMask, runtime.contours, runtime.hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
 
     const candidates: Array<{ contour: any; score: number; center: CursorPoint; area: number }> = [];
     for (let i = 0; i < runtime.contours.size(); i += 1) {
@@ -471,7 +406,7 @@ export function useOpenCvHandTracking() {
       }
 
       const rect = cv.boundingRect(contour);
-      if (isHeadLikeContour(cv, contour, area, rect)) {
+      if (phase === 'tracking' && isHeadLikeContour(cv, contour, area, rect)) {
         contour.delete();
         continue;
       }
@@ -489,18 +424,29 @@ export function useOpenCvHandTracking() {
       const distFromLast = lastHand ? Math.hypot(center.x - lastHand.x, center.y - lastHand.y) : 0;
       const hasMotion = motionRatio >= HAND_DETECTION.minMotionRatio;
       const nearLastHand = Boolean(lastHand && distFromLast <= HAND_DETECTION.trackingMaxDistance);
+      const registrationScore = profileSimilarity(registeredHandRef.current, profile);
 
       if (phase === 'hand-registration' && !pointInCameraRect(center, registrationBox)) {
         contour.delete();
         continue;
       }
 
-      if (phase === 'tracking' && !hasMotion && !nearLastHand) {
+      if (phase === 'tracking' && !registeredHandRef.current && !hasMotion && !nearLastHand) {
         contour.delete();
         continue;
       }
 
-      const registrationScore = profileSimilarity(registeredHandRef.current, profile);
+      if (
+        phase === 'tracking' &&
+        registeredHandRef.current &&
+        !nearLastHand &&
+        foregroundRatio < 0.01 &&
+        registrationScore < 0.25
+      ) {
+        contour.delete();
+        continue;
+      }
+
       const boxCenter = rectCenter(registrationBox);
       const registrationBoxScore =
         phase === 'hand-registration' ? -Math.hypot(center.x - boxCenter.x, center.y - boxCenter.y) * 8 : 0;
@@ -529,15 +475,6 @@ export function useOpenCvHandTracking() {
         2,
       );
     }
-    faceRects.forEach((face) => {
-      cv.rectangle(
-        debug,
-        new cv.Point(face.x, face.y),
-        new cv.Point(face.x + face.width, face.y + face.height),
-        new cv.Scalar(239, 68, 68, 255),
-        2,
-      );
-    });
     let cursor: CursorPoint | null = null;
     let fingertipEstimated = false;
     let contourDetected = false;
@@ -554,10 +491,16 @@ export function useOpenCvHandTracking() {
     });
 
     if (bestCandidate && phase === 'hand-registration') {
+      if (handRegistrationStartedAtRef.current === null) {
+        handRegistrationStartedAtRef.current = performance.now();
+        registrationSamplesRef.current = [];
+      }
+
       const rect = cv.boundingRect(bestCandidate.contour);
       registrationSamplesRef.current.push(getContourProfile(cv, bestCandidate.contour, bestCandidate.area, rect));
-      const remainingMs = Math.max(0, HAND_DETECTION.handRegistrationMs - phaseElapsed);
-      if (phaseElapsed >= HAND_DETECTION.handRegistrationMs && registrationSamplesRef.current.length > 5) {
+      const registrationElapsed = performance.now() - handRegistrationStartedAtRef.current;
+      const remainingMs = Math.max(0, HAND_DETECTION.handRegistrationMs - registrationElapsed);
+      if (registrationElapsed >= HAND_DETECTION.handRegistrationMs && registrationSamplesRef.current.length > 5) {
         const samples = registrationSamplesRef.current;
         registeredHandRef.current = {
           area: samples.reduce((sum, sample) => sum + sample.area, 0) / samples.length,
@@ -567,7 +510,7 @@ export function useOpenCvHandTracking() {
         };
         enterPhase('tracking');
       }
-      cv.imshow(maskCanvas, runtime.cleanedMask);
+      cv.imshow(maskCanvas, runtime.candidateMask);
       cv.imshow(contourCanvas, debug);
       debug.delete();
       candidates.forEach((candidate) => candidate.contour.delete());
@@ -582,7 +525,6 @@ export function useOpenCvHandTracking() {
         handDetected: true,
         handCount: 1,
         handPoints,
-        faceDetected: faceRects.length > 0,
         contourDetected: true,
         fingertipEstimated: false,
         cursor: null,
@@ -593,8 +535,10 @@ export function useOpenCvHandTracking() {
     }
 
     if (phase === 'hand-registration') {
-      const remainingMs = Math.max(0, HAND_DETECTION.handRegistrationMs - phaseElapsed);
-      cv.imshow(maskCanvas, runtime.cleanedMask);
+      handRegistrationStartedAtRef.current = null;
+      registrationSamplesRef.current = [];
+      const remainingMs = HAND_DETECTION.handRegistrationMs;
+      cv.imshow(maskCanvas, runtime.candidateMask);
       cv.imshow(contourCanvas, debug);
       debug.delete();
       candidates.forEach((candidate) => candidate.contour.delete());
@@ -609,7 +553,6 @@ export function useOpenCvHandTracking() {
         handDetected: false,
         handCount: 0,
         handPoints: [],
-        faceDetected: faceRects.length > 0,
         contourDetected: false,
         fingertipEstimated: false,
         cursor: null,
@@ -681,7 +624,7 @@ export function useOpenCvHandTracking() {
       lastHandCameraRef.current = null;
     }
 
-    cv.imshow(maskCanvas, runtime.cleanedMask);
+    cv.imshow(maskCanvas, runtime.candidateMask);
     cv.imshow(contourCanvas, debug);
     debug.delete();
 
@@ -695,7 +638,6 @@ export function useOpenCvHandTracking() {
       handDetected: contourDetected || withinGrace,
       handCount: handPoints.length,
       handPoints,
-      faceDetected: faceRects.length > 0,
       contourDetected,
       fingertipEstimated,
       cursor,
@@ -709,7 +651,6 @@ export function useOpenCvHandTracking() {
     try {
       setState((current) => ({ ...current, cameraStatus: 'loading-opencv', cameraError: '' }));
       await loadOpenCv();
-      faceClassifierRef.current = await loadFaceCascade();
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { width: CAMERA_WIDTH, height: CAMERA_HEIGHT, facingMode: 'user' },
         audio: false,
@@ -735,8 +676,6 @@ export function useOpenCvHandTracking() {
     return () => {
       if (animationRef.current) cancelAnimationFrame(animationRef.current);
       streamRef.current?.getTracks().forEach((track) => track.stop());
-      faceClassifierRef.current?.delete();
-      faceClassifierRef.current = null;
       disposeRuntime();
     };
   }, [disposeRuntime, start]);
