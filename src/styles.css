@@ -38,6 +38,16 @@ a {
   border-radius: 8px;
 }
 
+.done-button {
+  min-width: 104px;
+  min-height: 44px;
+  color: #ffffff;
+  background: #16a34a;
+  border: 1px solid #22c55e;
+  border-radius: 8px;
+  font-weight: 800;
+}
+
 .app-header p,
 .app-header h1 {
   margin: 0;
@@ -59,6 +69,23 @@ a {
   grid-template-columns: 190px minmax(720px, 1fr) 360px;
   gap: 16px;
   align-items: start;
+}
+
+.final-layout {
+  max-width: 1180px;
+  margin: 0 auto;
+}
+
+.final-mode {
+  background: #eef2f7;
+}
+
+.final-mode .web-canvas {
+  min-height: calc(100vh - 132px);
+}
+
+.final-mode .canvas-title {
+  display: none;
 }
 
 .panel {

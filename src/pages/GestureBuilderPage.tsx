@@ -14,6 +14,10 @@ import { clamp, distance, pointInRect, viewportToLocal } from '../utils/geometry
 const MIN_ELEMENT_WIDTH = 60;
 const MIN_ELEMENT_HEIGHT = 36;
 
+interface FileSystemFileHandle {
+  getFile: () => Promise<File>;
+}
+
 function readGestureTarget(cursor: CursorPoint): GestureTarget | null {
   const nodes = document.elementsFromPoint(cursor.x, cursor.y) as HTMLElement[];
   const node = nodes.find((element) => element.dataset?.gestureKind && element.dataset?.gestureValue);
@@ -67,6 +71,7 @@ export function GestureBuilderPage() {
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [resizeOffset, setResizeOffset] = useState({ x: 0, y: 0 });
   const [resizeMode, setResizeMode] = useState(false);
+  const [finalMode, setFinalMode] = useState(false);
   const [dwellProgress, setDwellProgress] = useState(0);
   const [gestureState, setGestureState] = useState('Waiting');
   const hoverRef = useRef<{ target: string; point: CursorPoint; startedAt: number } | null>(null);
@@ -125,17 +130,8 @@ export function GestureBuilderPage() {
     setGestureState('Typing');
   }, [selectedId]);
 
-  const openImagePicker = useCallback(() => {
-    if (selectedElement?.type !== 'image') {
-      setGestureState('Select an image first');
-      return;
-    }
-    imageInputRef.current?.click();
-  }, [selectedElement?.type]);
-
-  const handleImageFileChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file || !selectedId) return;
+  const loadImageFile = useCallback((file: File) => {
+    if (!selectedId) return;
 
     const reader = new FileReader();
     reader.onload = () => {
@@ -151,12 +147,60 @@ export function GestureBuilderPage() {
       setGestureState('Image loaded');
     };
     reader.readAsDataURL(file);
-    event.target.value = '';
   }, [selectedId]);
+
+  const openImagePicker = useCallback(async () => {
+    if (selectedElement?.type !== 'image') {
+      setGestureState('Select an image first');
+      return;
+    }
+
+    try {
+      const picker = (window as typeof window & {
+        showOpenFilePicker?: (options?: object) => Promise<FileSystemFileHandle[]>;
+      }).showOpenFilePicker;
+
+      if (picker) {
+        const [handle] = await picker({
+          multiple: false,
+          types: [
+            {
+              description: 'Images',
+              accept: { 'image/*': ['.png', '.jpg', '.jpeg', '.gif', '.webp'] },
+            },
+          ],
+        });
+        const file = await handle.getFile();
+        loadImageFile(file);
+        return;
+      }
+    } catch {
+      setGestureState('Image picker blocked');
+    }
+
+    imageInputRef.current?.click();
+  }, [loadImageFile, selectedElement?.type]);
+
+  const handleImageFileChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    loadImageFile(file);
+    event.target.value = '';
+  }, [loadImageFile]);
 
   const runAction = useCallback(
     (target: GestureTarget, cursor: CursorPoint | null) => {
       if (target.kind === 'tool') {
+        if (target.value === 'done') {
+          setFinalMode(true);
+          setSelectedId(null);
+          setDraggingId(null);
+          setResizingId(null);
+          setResizeMode(false);
+          setDwellProgress(0);
+          setGestureState('Final view');
+          return;
+        }
         if (target.value.startsWith('add:')) {
           addElement(target.value.replace('add:', '') as BuilderElementType, cursor);
           setResizeMode(false);
@@ -420,16 +464,36 @@ export function GestureBuilderPage() {
   }, [selectedElement?.type, selectedId, updateText]);
 
   return (
-    <main className="gesture-builder">
+    <main className={`gesture-builder ${finalMode ? 'final-mode' : ''}`}>
       <header className="app-header">
         <div>
           <p>OpenCV.js Computer Vision Team Project</p>
           <h1>Hand Gesture Web Builder</h1>
         </div>
+        {!finalMode && (
+          <button
+            type="button"
+            className="done-button"
+            data-gesture-kind="tool"
+            data-gesture-value="done"
+            onClick={() => {
+              setFinalMode(true);
+              setSelectedId(null);
+              setDraggingId(null);
+              setResizingId(null);
+              setResizeMode(false);
+              setGestureState('Final view');
+            }}
+          >
+            Done
+          </button>
+        )}
       </header>
 
-      <div className="builder-layout">
+      <div className={finalMode ? 'final-layout' : 'builder-layout'}>
+        {!finalMode && (
         <Toolbar canUploadImage={selectedElement?.type === 'image'} onUploadImage={openImagePicker} />
+        )}
 
         <section className="workspace">
           <div
@@ -443,9 +507,10 @@ export function GestureBuilderPage() {
               <CanvasElement
                 key={element.id}
                 element={element}
-                selected={element.id === selectedId}
-                dragging={element.id === draggingId}
-                resizeHandleActive={resizeMode && element.id === selectedId}
+                selected={!finalMode && element.id === selectedId}
+                dragging={!finalMode && element.id === draggingId}
+                resizeHandleActive={!finalMode && resizeMode && element.id === selectedId}
+                interactive={!finalMode}
               />
             ))}
             {elements.length === 0 && (
@@ -466,7 +531,7 @@ export function GestureBuilderPage() {
             )}
           </div>
 
-          {selectedElement?.type === 'text' && (
+          {!finalMode && selectedElement?.type === 'text' && (
             <label className="text-editor-bar">
               <span>Text input</span>
               <textarea
@@ -476,24 +541,10 @@ export function GestureBuilderPage() {
               />
             </label>
           )}
-          {selectedElement?.type === 'image' && (
-            <label className="image-picker-bar">
-              <span>Image file</span>
-              <button
-                type="button"
-                className="image-picker-button"
-                onClick={openImagePicker}
-                data-gesture-kind="tool"
-                data-gesture-value="upload-image"
-              >
-                Choose Image
-              </button>
-              <input type="file" accept="image/*" onChange={handleImageFileChange} />
-            </label>
-          )}
-          <VirtualKeyboard visible={selectedElement?.type === 'text'} />
+          <VirtualKeyboard visible={!finalMode && selectedElement?.type === 'text'} />
         </section>
 
+        {!finalMode && (
         <aside className="right-rail">
           <CameraDebugPanel
             videoRef={videoRef}
@@ -512,9 +563,10 @@ export function GestureBuilderPage() {
             onThresholdChange={setThresholds}
           />
         </aside>
+        )}
       </div>
 
-      <GestureCursor cursor={tracking.cursor} progress={dwellProgress} active={tracking.handDetected} />
+      {!finalMode && <GestureCursor cursor={tracking.cursor} progress={dwellProgress} active={tracking.handDetected} />}
       <input
         ref={imageInputRef}
         type="file"
