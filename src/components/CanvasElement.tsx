@@ -14,6 +14,13 @@ export function CanvasElement({ element, selected, dragging, interactive = true 
     top: element.y,
     width: element.width,
     height: element.height,
+    ...(element.imageSrc
+      ? {
+          backgroundImage: `url(${element.imageSrc})`,
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+        }
+      : {}),
     ...element.style,
   } as CSSProperties;
 
@@ -31,6 +38,8 @@ export function CanvasElement({ element, selected, dragging, interactive = true 
           <strong>{element.text.split('\n')[0]}</strong>
           <span>{element.text.split('\n').slice(1).join(' ') || 'Short description'}</span>
         </>
+      ) : element.type === 'image' && element.imageSrc ? (
+        <span className="image-label">{element.text}</span>
       ) : (
         <span>{element.text}</span>
       )}

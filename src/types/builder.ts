@@ -14,6 +14,7 @@ export interface BuilderElement {
   width: number;
   height: number;
   text: string;
+  imageSrc?: string;
   style?: Record<string, string | number>;
 }
 

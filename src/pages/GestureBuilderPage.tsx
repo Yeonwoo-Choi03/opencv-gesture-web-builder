@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { CameraDebugPanel } from '../components/CameraDebugPanel';
 import { CanvasElement } from '../components/CanvasElement';
 import { GestureCursor } from '../components/GestureCursor';
@@ -56,6 +56,7 @@ export function GestureBuilderPage() {
     setThresholds,
   } = useOpenCvHandTracking();
   const canvasRef = useRef<HTMLDivElement | null>(null);
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
   const [elements, setElements] = useState<BuilderElement[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -80,6 +81,14 @@ export function GestureBuilderPage() {
   );
   const calibrationMessage = getCalibrationMessage(tracking.phase);
   const countdownSeconds = Math.ceil(tracking.phaseCountdownMs / 1000);
+
+  const bringElementToFront = useCallback((elementId: string) => {
+    setElements((current) => {
+      const element = current.find((item) => item.id === elementId);
+      if (!element) return current;
+      return [...current.filter((item) => item.id !== elementId), element];
+    });
+  }, []);
 
   const addElement = useCallback((type: BuilderElementType, cursor: CursorPoint | null) => {
     const canvasRect = canvasRef.current?.getBoundingClientRect();
@@ -110,6 +119,42 @@ export function GestureBuilderPage() {
       }),
     );
     setGestureState('Typing');
+  }, [selectedId]);
+
+  const updateSelectedText = useCallback((text: string) => {
+    setElements((current) =>
+      current.map((element) => (element.id === selectedId && element.type === 'text' ? { ...element, text } : element)),
+    );
+    setGestureState('Typing');
+  }, [selectedId]);
+
+  const openImagePicker = useCallback(() => {
+    if (selectedElement?.type !== 'image') {
+      setGestureState('Select an image first');
+      return;
+    }
+    imageInputRef.current?.click();
+  }, [selectedElement?.type]);
+
+  const handleImageFileChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !selectedId) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const imageSrc = typeof reader.result === 'string' ? reader.result : '';
+      if (!imageSrc) return;
+      setElements((current) =>
+        current.map((element) =>
+          element.id === selectedId && element.type === 'image'
+            ? { ...element, imageSrc, text: file.name.replace(/\.[^.]+$/, '') || 'Image' }
+            : element,
+        ),
+      );
+      setGestureState('Image loaded');
+    };
+    reader.readAsDataURL(file);
+    event.target.value = '';
   }, [selectedId]);
 
   const runAction = useCallback(
@@ -169,6 +214,7 @@ export function GestureBuilderPage() {
         if (!canvasRect || !element || !cursor) return;
         const local = viewportToLocal(cursor, canvasRect);
         setSelectedId(element.id);
+        bringElementToFront(element.id);
         setDraggingId(element.id);
         setResizeMode(false);
         scaleRef.current = null;
@@ -181,7 +227,7 @@ export function GestureBuilderPage() {
         updateText(target.value);
       }
     },
-    [addElement, draggingId, elements, selectedId, updateText],
+    [addElement, bringElementToFront, draggingId, elements, selectedId, updateText],
   );
 
   useEffect(() => {
@@ -314,7 +360,24 @@ export function GestureBuilderPage() {
         scaleRef.current = null;
         setGestureState('Dropped');
       }
-      if ((event.key === 'Delete' || event.key === 'Backspace') && selectedId && event.target === document.body) {
+      if (selectedElement?.type === 'text' && event.target === document.body) {
+        if (event.key === 'Backspace') {
+          event.preventDefault();
+          updateText('Backspace');
+          return;
+        }
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          updateText('Enter');
+          return;
+        }
+        if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
+          event.preventDefault();
+          updateText(event.key);
+          return;
+        }
+      }
+      if (event.key === 'Delete' && selectedId && event.target === document.body) {
         setElements((current) => current.filter((element) => element.id !== selectedId));
         setSelectedId(null);
         setDraggingId(null);
@@ -324,7 +387,7 @@ export function GestureBuilderPage() {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [selectedId]);
+  }, [selectedElement?.type, selectedId, updateText]);
 
   return (
     <main className="gesture-builder">
@@ -336,7 +399,7 @@ export function GestureBuilderPage() {
       </header>
 
       <div className="builder-layout">
-        <Toolbar />
+        <Toolbar canUploadImage={selectedElement?.type === 'image'} onUploadImage={openImagePicker} />
 
         <section className="workspace">
           <div
@@ -372,6 +435,16 @@ export function GestureBuilderPage() {
             )}
           </div>
 
+          {selectedElement?.type === 'text' && (
+            <label className="text-editor-bar">
+              <span>Text input</span>
+              <textarea
+                value={selectedElement.text}
+                onChange={(event) => updateSelectedText(event.target.value)}
+                rows={2}
+              />
+            </label>
+          )}
           <VirtualKeyboard visible={selectedElement?.type === 'text'} />
         </section>
 
@@ -396,6 +469,13 @@ export function GestureBuilderPage() {
       </div>
 
       <GestureCursor cursor={tracking.cursor} progress={dwellProgress} active={tracking.handDetected} />
+      <input
+        ref={imageInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden-file-input"
+        onChange={handleImageFileChange}
+      />
       {calibrationMessage && (
         <div className="calibration-overlay">
           <div className="calibration-card">

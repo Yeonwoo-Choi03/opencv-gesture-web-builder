@@ -9,7 +9,12 @@ const toolButtons: Array<{ label: string; value: BuilderElementType }> = [
   { label: 'Section', value: 'section' },
 ];
 
-export function Toolbar() {
+interface ToolbarProps {
+  canUploadImage: boolean;
+  onUploadImage: () => void;
+}
+
+export function Toolbar({ canUploadImage, onUploadImage }: ToolbarProps) {
   return (
     <aside className="panel toolbar">
       <div className="panel-heading">
@@ -29,6 +34,14 @@ export function Toolbar() {
         ))}
         <button type="button" className="tool-button action" data-gesture-kind="tool" data-gesture-value="resize">
           Resize Mode
+        </button>
+        <button
+          type="button"
+          className="tool-button action"
+          disabled={!canUploadImage}
+          onClick={onUploadImage}
+        >
+          Upload Image
         </button>
         <button type="button" className="tool-button danger" data-gesture-kind="tool" data-gesture-value="delete">
           Delete
