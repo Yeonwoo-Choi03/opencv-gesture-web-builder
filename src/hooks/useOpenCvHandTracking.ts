@@ -124,6 +124,18 @@ function pointInCameraRect(point: CursorPoint, rect: { x: number; y: number; wid
   return point.x >= rect.x && point.x <= rect.x + rect.width && point.y >= rect.y && point.y <= rect.y + rect.height;
 }
 
+function keepOnlyRegistrationBox(cv: any, mask: any, box: { x: number; y: number; width: number; height: number }) {
+  const boxedMask = cv.Mat.zeros(CAMERA_HEIGHT, CAMERA_WIDTH, cv.CV_8UC1);
+  const rect = new cv.Rect(box.x, box.y, box.width, box.height);
+  const sourceRoi = mask.roi(rect);
+  const targetRoi = boxedMask.roi(rect);
+  sourceRoi.copyTo(targetRoi);
+  boxedMask.copyTo(mask);
+  sourceRoi.delete();
+  targetRoi.delete();
+  boxedMask.delete();
+}
+
 function profileSimilarity(profile: RegisteredHandProfile | null, candidate: RegisteredHandProfile) {
   if (!profile) return 0;
 
@@ -388,6 +400,7 @@ export function useOpenCvHandTracking() {
 
     if (phase === 'hand-registration') {
       runtime.foregroundSkinMask.copyTo(runtime.candidateMask);
+      keepOnlyRegistrationBox(cv, runtime.candidateMask, registrationBox);
     } else if (registeredHandRef.current) {
       runtime.cleanedMask.copyTo(runtime.candidateMask);
     } else {
