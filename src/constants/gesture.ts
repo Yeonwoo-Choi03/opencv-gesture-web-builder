@@ -13,11 +13,12 @@ export const HAND_DETECTION = {
   motionThreshold: 16,
   minMotionRatio: 0.012,
   trackingMaxDistance: 120,
+  lockMaxDistance: 82,
   registrationBox: {
-    xRatio: 0.32,
-    yRatio: 0.22,
-    widthRatio: 0.36,
-    heightRatio: 0.48,
+    xRatio: 0.62,
+    yRatio: 0.26,
+    widthRatio: 0.32,
+    heightRatio: 0.46,
   },
   backgroundDiffThreshold: 24,
   headReject: {

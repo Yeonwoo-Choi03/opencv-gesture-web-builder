@@ -1,5 +1,5 @@
 import type { BuilderElement } from '../types/builder';
-import type { HandTrackingState } from '../hooks/useOpenCvHandTracking';
+import { DEFAULT_SKIN_THRESHOLDS, type HandTrackingState, type SkinThresholdConfig } from '../hooks/useOpenCvHandTracking';
 
 interface StatusPanelProps {
   selectedElement: BuilderElement | undefined;
@@ -8,6 +8,8 @@ interface StatusPanelProps {
   dwellProgress: number;
   dragging: boolean;
   resizeMode: boolean;
+  thresholds: SkinThresholdConfig;
+  onThresholdChange: (thresholds: SkinThresholdConfig) => void;
 }
 
 export function StatusPanel({
@@ -17,7 +19,17 @@ export function StatusPanel({
   dwellProgress,
   dragging,
   resizeMode,
+  thresholds,
+  onThresholdChange,
 }: StatusPanelProps) {
+  const updateThreshold = (key: keyof SkinThresholdConfig, value: number) => {
+    onThresholdChange({ ...thresholds, [key]: value });
+  };
+
+  const resetThresholds = () => {
+    onThresholdChange(DEFAULT_SKIN_THRESHOLDS);
+  };
+
   return (
     <section className="panel status-panel">
       <div className="panel-heading">
@@ -73,6 +85,33 @@ export function StatusPanel({
           <dd>{tracking.fingertipEstimated ? 'Estimated' : 'Not estimated'}</dd>
         </div>
       </dl>
+
+      <div className="threshold-controls">
+        <div className="threshold-heading">
+          <h3>Skin Threshold</h3>
+          <button type="button" onClick={resetThresholds}>Reset</button>
+        </div>
+        {[
+          ['crMin', 'Cr Min', 100, 170],
+          ['crMax', 'Cr Max', 140, 210],
+          ['cbMin', 'Cb Min', 60, 120],
+          ['cbMax', 'Cb Max', 100, 160],
+          ['hueMax', 'Hue Max', 15, 55],
+          ['saturationMin', 'Sat Min', 5, 90],
+        ].map(([key, label, min, max]) => (
+          <label className="threshold-row" key={key}>
+            <span>{label}</span>
+            <input
+              type="range"
+              min={min}
+              max={max}
+              value={thresholds[key as keyof SkinThresholdConfig]}
+              onChange={(event) => updateThreshold(key as keyof SkinThresholdConfig, Number(event.target.value))}
+            />
+            <strong>{thresholds[key as keyof SkinThresholdConfig]}</strong>
+          </label>
+        ))}
+      </div>
     </section>
   );
 }

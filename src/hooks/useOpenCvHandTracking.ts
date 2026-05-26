@@ -30,6 +30,9 @@ export interface HandTrackingState {
 interface CvRuntime {
   mat: any;
   rgb: any;
+  lab: any;
+  labChannels: any;
+  equalizedRgb: any;
   gray: any;
   prevGray: any;
   backgroundGray: any;
@@ -56,7 +59,29 @@ interface RegisteredHandProfile {
   aspectRatio: number;
   extent: number;
   solidity: number;
+  cr: number;
+  cb: number;
+  hue: number;
+  saturation: number;
 }
+
+export interface SkinThresholdConfig {
+  crMin: number;
+  crMax: number;
+  cbMin: number;
+  cbMax: number;
+  hueMax: number;
+  saturationMin: number;
+}
+
+export const DEFAULT_SKIN_THRESHOLDS: SkinThresholdConfig = {
+  crMin: HAND_DETECTION.yCrCbLower[1],
+  crMax: HAND_DETECTION.yCrCbUpper[1],
+  cbMin: HAND_DETECTION.yCrCbLower[2],
+  cbMax: HAND_DETECTION.yCrCbUpper[2],
+  hueMax: HAND_DETECTION.hsvUpper[0],
+  saturationMin: HAND_DETECTION.hsvLower[1],
+};
 
 function loadOpenCv() {
   if (window.cv?.Mat) {
@@ -143,21 +168,56 @@ function profileSimilarity(profile: RegisteredHandProfile | null, candidate: Reg
   const aspectDiff = Math.abs(profile.aspectRatio - candidate.aspectRatio);
   const extentDiff = Math.abs(profile.extent - candidate.extent);
   const solidityDiff = Math.abs(profile.solidity - candidate.solidity);
+  const crDiff = Math.abs(profile.cr - candidate.cr) / 40;
+  const cbDiff = Math.abs(profile.cb - candidate.cb) / 35;
+  const hueDiff = Math.abs(profile.hue - candidate.hue) / 24;
+  const saturationDiff = Math.abs(profile.saturation - candidate.saturation) / 120;
+  const colorDiff = crDiff + cbDiff + hueDiff + saturationDiff;
 
-  return clamp(areaRatio * 2 - aspectDiff - extentDiff * 1.5 - solidityDiff, -1.5, 2);
+  return clamp(areaRatio * 2 - aspectDiff - extentDiff * 1.5 - solidityDiff - colorDiff * 0.9, -2.5, 2.5);
 }
 
-function getContourProfile(cv: any, contour: any, area: number, rect: any): RegisteredHandProfile {
+function getContourProfile(
+  cv: any,
+  contour: any,
+  area: number,
+  rect: any,
+  ycrcb?: any,
+  hsv?: any,
+): RegisteredHandProfile {
   const hull = new cv.Mat();
   cv.convexHull(contour, hull, false, true);
   const hullArea = cv.contourArea(hull);
   hull.delete();
+  let cr = 0;
+  let cb = 0;
+  let hue = 0;
+  let saturation = 0;
+
+  if (ycrcb && hsv) {
+    const contourMask = cv.Mat.zeros(CAMERA_HEIGHT, CAMERA_WIDTH, cv.CV_8UC1);
+    const contourList = new cv.MatVector();
+    contourList.push_back(contour);
+    cv.drawContours(contourMask, contourList, 0, new cv.Scalar(255, 255, 255, 255), -1);
+    const ycrcbMean = cv.mean(ycrcb, contourMask);
+    const hsvMean = cv.mean(hsv, contourMask);
+    cr = ycrcbMean[1] ?? 0;
+    cb = ycrcbMean[2] ?? 0;
+    hue = hsvMean[0] ?? 0;
+    saturation = hsvMean[1] ?? 0;
+    contourMask.delete();
+    contourList.delete();
+  }
 
   return {
     area,
     aspectRatio: rect.width / Math.max(1, rect.height),
     extent: area / Math.max(1, rect.width * rect.height),
     solidity: area / Math.max(1, hullArea),
+    cr,
+    cb,
+    hue,
+    saturation,
   };
 }
 
@@ -245,6 +305,13 @@ export function useOpenCvHandTracking() {
   const backgroundReadyRef = useRef(false);
   const registrationSamplesRef = useRef<RegisteredHandProfile[]>([]);
   const handRegistrationStartedAtRef = useRef<number | null>(null);
+  const [thresholds, setThresholdState] = useState<SkinThresholdConfig>(DEFAULT_SKIN_THRESHOLDS);
+  const thresholdsRef = useRef<SkinThresholdConfig>(DEFAULT_SKIN_THRESHOLDS);
+
+  const setThresholds = useCallback((nextThresholds: SkinThresholdConfig) => {
+    thresholdsRef.current = nextThresholds;
+    setThresholdState(nextThresholds);
+  }, []);
 
   const [state, setState] = useState<HandTrackingState>({
     cameraStatus: 'idle',
@@ -302,6 +369,9 @@ export function useOpenCvHandTracking() {
     const runtime: CvRuntime = {
       mat: new cv.Mat(CAMERA_HEIGHT, CAMERA_WIDTH, cv.CV_8UC4),
       rgb: new cv.Mat(),
+      lab: new cv.Mat(),
+      labChannels: new cv.MatVector(),
+      equalizedRgb: new cv.Mat(),
       gray: new cv.Mat(),
       prevGray: new cv.Mat(),
       backgroundGray: new cv.Mat(),
@@ -341,20 +411,59 @@ export function useOpenCvHandTracking() {
     const registrationBox = getRegistrationBox();
     const phase = phaseRef.current;
     const phaseElapsed = performance.now() - phaseStartedAtRef.current;
+    const activeThresholds = thresholdsRef.current;
     runtime.cap.read(runtime.mat);
     cv.flip(runtime.mat, runtime.mat, 1);
 
-    // HSV/YCrCb color conversion for skin segmentation.
+    // CLAHE reduces harsh lighting and shadow differences before skin segmentation.
     cv.cvtColor(runtime.mat, runtime.rgb, cv.COLOR_RGBA2RGB);
-    cv.cvtColor(runtime.rgb, runtime.gray, cv.COLOR_RGB2GRAY);
-    cv.GaussianBlur(runtime.gray, runtime.gray, new cv.Size(7, 7), 0);
-    cv.cvtColor(runtime.rgb, runtime.hsv, cv.COLOR_RGB2HSV);
-    cv.cvtColor(runtime.rgb, runtime.ycrcb, cv.COLOR_RGB2YCrCb);
+    if (cv.CLAHE && typeof runtime.labChannels.set === 'function') {
+      cv.cvtColor(runtime.rgb, runtime.lab, cv.COLOR_RGB2Lab);
+      if (runtime.labChannels.size() > 0) runtime.labChannels.delete();
+      runtime.labChannels = new cv.MatVector();
+      cv.split(runtime.lab, runtime.labChannels);
+      const clahe = new cv.CLAHE(2.0, new cv.Size(8, 8));
+      const lightness = runtime.labChannels.get(0);
+      clahe.apply(lightness, lightness);
+      runtime.labChannels.set(0, lightness);
+      cv.merge(runtime.labChannels, runtime.lab);
+      cv.cvtColor(runtime.lab, runtime.equalizedRgb, cv.COLOR_Lab2RGB);
+      lightness.delete();
+      clahe.delete();
+    } else {
+      runtime.rgb.copyTo(runtime.equalizedRgb);
+    }
 
-    const hsvLower = new cv.Mat(runtime.hsv.rows, runtime.hsv.cols, runtime.hsv.type(), HAND_DETECTION.hsvLower);
-    const hsvUpper = new cv.Mat(runtime.hsv.rows, runtime.hsv.cols, runtime.hsv.type(), HAND_DETECTION.hsvUpper);
-    const skinLower = new cv.Mat(runtime.ycrcb.rows, runtime.ycrcb.cols, runtime.ycrcb.type(), HAND_DETECTION.yCrCbLower);
-    const skinUpper = new cv.Mat(runtime.ycrcb.rows, runtime.ycrcb.cols, runtime.ycrcb.type(), HAND_DETECTION.yCrCbUpper);
+    // HSV/YCrCb color conversion for skin segmentation.
+    cv.cvtColor(runtime.equalizedRgb, runtime.gray, cv.COLOR_RGB2GRAY);
+    cv.GaussianBlur(runtime.gray, runtime.gray, new cv.Size(7, 7), 0);
+    cv.cvtColor(runtime.equalizedRgb, runtime.hsv, cv.COLOR_RGB2HSV);
+    cv.cvtColor(runtime.equalizedRgb, runtime.ycrcb, cv.COLOR_RGB2YCrCb);
+
+    const hsvLower = new cv.Mat(runtime.hsv.rows, runtime.hsv.cols, runtime.hsv.type(), [
+      HAND_DETECTION.hsvLower[0],
+      activeThresholds.saturationMin,
+      HAND_DETECTION.hsvLower[2],
+      0,
+    ]);
+    const hsvUpper = new cv.Mat(runtime.hsv.rows, runtime.hsv.cols, runtime.hsv.type(), [
+      activeThresholds.hueMax,
+      HAND_DETECTION.hsvUpper[1],
+      HAND_DETECTION.hsvUpper[2],
+      255,
+    ]);
+    const skinLower = new cv.Mat(runtime.ycrcb.rows, runtime.ycrcb.cols, runtime.ycrcb.type(), [
+      0,
+      activeThresholds.crMin,
+      activeThresholds.cbMin,
+      0,
+    ]);
+    const skinUpper = new cv.Mat(runtime.ycrcb.rows, runtime.ycrcb.cols, runtime.ycrcb.type(), [
+      255,
+      activeThresholds.crMax,
+      activeThresholds.cbMax,
+      255,
+    ]);
 
     cv.inRange(runtime.hsv, hsvLower, hsvUpper, runtime.hsvMask);
     cv.inRange(runtime.ycrcb, skinLower, skinUpper, runtime.skinMask);
@@ -467,7 +576,7 @@ export function useOpenCvHandTracking() {
       }
 
       const rect = cv.boundingRect(contour);
-      const profile = getContourProfile(cv, contour, area, rect);
+      const profile = getContourProfile(cv, contour, area, rect, runtime.ycrcb, runtime.hsv);
       const registrationScore = profileSimilarity(registeredHandRef.current, profile);
       const headPenalty = getHeadPenalty(cv, contour, area, rect, registeredHandRef.current);
       if (
@@ -491,6 +600,12 @@ export function useOpenCvHandTracking() {
       const distFromLast = lastHand ? Math.hypot(center.x - lastHand.x, center.y - lastHand.y) : 0;
       const hasMotion = motionRatio >= HAND_DETECTION.minMotionRatio;
       const nearLastHand = Boolean(lastHand && distFromLast <= HAND_DETECTION.trackingMaxDistance);
+      const lockedToLastHand = Boolean(
+        phase === 'tracking' &&
+          registeredHandRef.current &&
+          lastHand &&
+          performance.now() - lastSeenAtRef.current <= HAND_DETECTION.noHandGraceMs,
+      );
 
       if (phase === 'hand-registration' && !pointInCameraRect(center, registrationBox)) {
         contour.delete();
@@ -513,6 +628,15 @@ export function useOpenCvHandTracking() {
         continue;
       }
 
+      if (
+        lockedToLastHand &&
+        distFromLast > HAND_DETECTION.lockMaxDistance &&
+        (registrationScore < 0.85 || motionRatio < HAND_DETECTION.minMotionRatio * 1.5)
+      ) {
+        contour.delete();
+        continue;
+      }
+
       const boxCenter = rectCenter(registrationBox);
       const registrationBoxScore =
         phase === 'hand-registration' ? -Math.hypot(center.x - boxCenter.x, center.y - boxCenter.y) * 8 : 0;
@@ -522,7 +646,7 @@ export function useOpenCvHandTracking() {
         registrationScore * 2500 +
         Math.min(area, HAND_DETECTION.maxContourArea * 0.55) * 0.02 +
         registrationBoxScore -
-        (lastHand ? distFromLast * 8 : 0) -
+        (lastHand ? distFromLast * (lockedToLastHand ? 18 : 8) : 0) -
         headPenalty;
       candidates.push({ contour, score, center, area });
     }
@@ -564,7 +688,9 @@ export function useOpenCvHandTracking() {
       }
 
       const rect = cv.boundingRect(bestCandidate.contour);
-      registrationSamplesRef.current.push(getContourProfile(cv, bestCandidate.contour, bestCandidate.area, rect));
+      registrationSamplesRef.current.push(
+        getContourProfile(cv, bestCandidate.contour, bestCandidate.area, rect, runtime.ycrcb, runtime.hsv),
+      );
       const registrationElapsed = performance.now() - handRegistrationStartedAtRef.current;
       const remainingMs = Math.max(0, HAND_DETECTION.handRegistrationMs - registrationElapsed);
       if (registrationElapsed >= HAND_DETECTION.handRegistrationMs && registrationSamplesRef.current.length > 5) {
@@ -574,6 +700,10 @@ export function useOpenCvHandTracking() {
           aspectRatio: samples.reduce((sum, sample) => sum + sample.aspectRatio, 0) / samples.length,
           extent: samples.reduce((sum, sample) => sum + sample.extent, 0) / samples.length,
           solidity: samples.reduce((sum, sample) => sum + sample.solidity, 0) / samples.length,
+          cr: samples.reduce((sum, sample) => sum + sample.cr, 0) / samples.length,
+          cb: samples.reduce((sum, sample) => sum + sample.cb, 0) / samples.length,
+          hue: samples.reduce((sum, sample) => sum + sample.hue, 0) / samples.length,
+          saturation: samples.reduce((sum, sample) => sum + sample.saturation, 0) / samples.length,
         };
         phaseRef.current = 'tracking';
         phaseStartedAtRef.current = performance.now();
@@ -754,5 +884,7 @@ export function useOpenCvHandTracking() {
     maskCanvasRef,
     contourCanvasRef,
     state,
+    thresholds,
+    setThresholds,
   };
 }

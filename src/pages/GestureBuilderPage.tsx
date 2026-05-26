@@ -47,7 +47,14 @@ function getCalibrationMessage(phase: string) {
 }
 
 export function GestureBuilderPage() {
-  const { videoRef, maskCanvasRef, contourCanvasRef, state: tracking } = useOpenCvHandTracking();
+  const {
+    videoRef,
+    maskCanvasRef,
+    contourCanvasRef,
+    state: tracking,
+    thresholds,
+    setThresholds,
+  } = useOpenCvHandTracking();
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const [elements, setElements] = useState<BuilderElement[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -382,6 +389,8 @@ export function GestureBuilderPage() {
             dwellProgress={dwellProgress}
             dragging={Boolean(draggingId)}
             resizeMode={resizeMode}
+            thresholds={thresholds}
+            onThresholdChange={setThresholds}
           />
         </aside>
       </div>
