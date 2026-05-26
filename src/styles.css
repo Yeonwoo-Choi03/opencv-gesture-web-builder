@@ -48,6 +48,14 @@ a {
   font-weight: 800;
 }
 
+.canvas-done-button {
+  position: absolute;
+  right: 18px;
+  bottom: 18px;
+  z-index: 20;
+  box-shadow: 0 12px 24px rgba(22, 163, 74, 0.22);
+}
+
 .app-header p,
 .app-header h1 {
   margin: 0;

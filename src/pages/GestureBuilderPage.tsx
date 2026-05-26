@@ -470,24 +470,6 @@ export function GestureBuilderPage() {
           <p>OpenCV.js Computer Vision Team Project</p>
           <h1>Hand Gesture Web Builder</h1>
         </div>
-        {!finalMode && (
-          <button
-            type="button"
-            className="done-button"
-            data-gesture-kind="tool"
-            data-gesture-value="done"
-            onClick={() => {
-              setFinalMode(true);
-              setSelectedId(null);
-              setDraggingId(null);
-              setResizingId(null);
-              setResizeMode(false);
-              setGestureState('Final view');
-            }}
-          >
-            Done
-          </button>
-        )}
       </header>
 
       <div className={finalMode ? 'final-layout' : 'builder-layout'}>
@@ -503,6 +485,24 @@ export function GestureBuilderPage() {
             data-gesture-value="canvas"
           >
             <div className="canvas-title">White Web Page Canvas</div>
+            {!finalMode && (
+              <button
+                type="button"
+                className="done-button canvas-done-button"
+                data-gesture-kind="tool"
+                data-gesture-value="done"
+                onClick={() => {
+                  setFinalMode(true);
+                  setSelectedId(null);
+                  setDraggingId(null);
+                  setResizingId(null);
+                  setResizeMode(false);
+                  setGestureState('Final view');
+                }}
+              >
+                Done
+              </button>
+            )}
             {elements.map((element) => (
               <CanvasElement
                 key={element.id}
