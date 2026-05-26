@@ -8,7 +8,7 @@ export const HAND_DETECTION = {
   handRegistrationMs: 2000,
   minContourArea: 1800,
   maxContourArea: 22000,
-  noHandGraceMs: 450,
+  noHandGraceMs: 900,
   smoothingWindow: 6,
   motionThreshold: 16,
   minMotionRatio: 0.012,

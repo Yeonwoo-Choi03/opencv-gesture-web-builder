@@ -419,7 +419,13 @@ export function useOpenCvHandTracking() {
       }
 
       const rect = cv.boundingRect(contour);
-      if (phase === 'tracking' && isHeadLikeContour(cv, contour, area, rect)) {
+      const profile = getContourProfile(cv, contour, area, rect);
+      const registrationScore = profileSimilarity(registeredHandRef.current, profile);
+      if (
+        phase === 'tracking' &&
+        isHeadLikeContour(cv, contour, area, rect) &&
+        (!registeredHandRef.current || registrationScore < 0.1)
+      ) {
         contour.delete();
         continue;
       }
@@ -431,13 +437,11 @@ export function useOpenCvHandTracking() {
       const foregroundRoi = runtime.foregroundSkinMask.roi(rect);
       const foregroundRatio = cv.countNonZero(foregroundRoi) / Math.max(1, rect.width * rect.height);
       foregroundRoi.delete();
-      const profile = getContourProfile(cv, contour, area, rect);
 
       const lastHand = lastHandCameraRef.current;
       const distFromLast = lastHand ? Math.hypot(center.x - lastHand.x, center.y - lastHand.y) : 0;
       const hasMotion = motionRatio >= HAND_DETECTION.minMotionRatio;
       const nearLastHand = Boolean(lastHand && distFromLast <= HAND_DETECTION.trackingMaxDistance);
-      const registrationScore = profileSimilarity(registeredHandRef.current, profile);
 
       if (phase === 'hand-registration' && !pointInCameraRect(center, registrationBox)) {
         contour.delete();
@@ -453,8 +457,8 @@ export function useOpenCvHandTracking() {
         phase === 'tracking' &&
         registeredHandRef.current &&
         !nearLastHand &&
-        foregroundRatio < 0.01 &&
-        registrationScore < 0.25
+        foregroundRatio < 0.003 &&
+        registrationScore < -0.25
       ) {
         contour.delete();
         continue;
@@ -521,7 +525,11 @@ export function useOpenCvHandTracking() {
           extent: samples.reduce((sum, sample) => sum + sample.extent, 0) / samples.length,
           solidity: samples.reduce((sum, sample) => sum + sample.solidity, 0) / samples.length,
         };
-        enterPhase('tracking');
+        phaseRef.current = 'tracking';
+        phaseStartedAtRef.current = performance.now();
+        lastHandCameraRef.current = bestCandidate.center;
+        lastCursorRef.current = cameraPointToViewport(bestCandidate.center);
+        lastSeenAtRef.current = performance.now();
       }
       cv.imshow(maskCanvas, runtime.candidateMask);
       cv.imshow(contourCanvas, debug);
