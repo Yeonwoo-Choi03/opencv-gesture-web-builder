@@ -66,8 +66,8 @@ const MARKER = {
   maxArea: 2200,
   clickDistance: 58,
   resizeMinDistance: 36,
-  smoothingWindow: 5,
-  noMarkerGraceMs: 300,
+  smoothingWindow: 8,
+  noMarkerGraceMs: 850,
   redRanges: [
     { lower: [0, 135, 105, 0], upper: [8, 255, 255, 255] },
     { lower: [172, 135, 105, 0], upper: [179, 255, 255, 255] },
@@ -138,9 +138,10 @@ function findLargestMarker(cv: any, runtime: CvRuntime, ranges: readonly { lower
     partial.delete();
   });
 
-  cv.morphologyEx(runtime.markerMask, runtime.markerMask, cv.MORPH_OPEN, runtime.kernel);
+  cv.GaussianBlur(runtime.markerMask, runtime.markerMask, new cv.Size(5, 5), 0);
   cv.morphologyEx(runtime.markerMask, runtime.markerMask, cv.MORPH_CLOSE, runtime.kernel);
   cv.dilate(runtime.markerMask, runtime.markerMask, runtime.kernel);
+  cv.morphologyEx(runtime.markerMask, runtime.markerMask, cv.MORPH_OPEN, runtime.kernel);
   cv.bitwise_or(runtime.combinedMask, runtime.markerMask, runtime.combinedMask);
 
   runtime.contours.delete();
