@@ -161,6 +161,40 @@ function getContourProfile(cv: any, contour: any, area: number, rect: any): Regi
   };
 }
 
+function estimateFingertipFromUpperContour(contour: any, center: CursorPoint) {
+  let tipX = 0;
+  let tipY = Number.POSITIVE_INFINITY;
+  let bestDistance = Number.NEGATIVE_INFINITY;
+  let fallbackX = 0;
+  let fallbackY = Number.POSITIVE_INFINITY;
+
+  for (let i = 0; i < contour.data32S.length; i += 2) {
+    const x = contour.data32S[i];
+    const y = contour.data32S[i + 1];
+
+    if (y < fallbackY) {
+      fallbackX = x;
+      fallbackY = y;
+    }
+
+    if (y > center.y) continue;
+
+    const distanceFromCenter = Math.hypot(x - center.x, y - center.y);
+    if (distanceFromCenter > bestDistance) {
+      bestDistance = distanceFromCenter;
+      tipX = x;
+      tipY = y;
+    }
+  }
+
+  if (!Number.isFinite(tipY)) {
+    tipX = fallbackX;
+    tipY = fallbackY;
+  }
+
+  return Number.isFinite(tipY) ? { x: tipX, y: tipY } : null;
+}
+
 function isHeadLikeContour(cv: any, contour: any, area: number, rect: any) {
   const profile = getContourProfile(cv, contour, area, rect);
   const aspectRatio = profile.aspectRatio;
@@ -596,27 +630,15 @@ export function useOpenCvHandTracking() {
       hullList.push_back(hull);
       cv.drawContours(debug, hullList, 0, new cv.Scalar(22, 163, 74, 255), 1);
 
-      // With the index finger raised, the topmost contour point is used as the fingertip candidate.
-      let tipX = 0;
-      let tipY = Number.POSITIVE_INFINITY;
-      for (let i = 0; i < bestContour.data32S.length; i += 2) {
-        const x = bestContour.data32S[i];
-        const y = bestContour.data32S[i + 1];
-        if (y < tipY) {
-          tipX = x;
-          tipY = y;
-        }
-      }
+      // Use the farthest point in the upper half of the hand contour as the fingertip candidate.
+      const fingertip = estimateFingertipFromUpperContour(bestContour, bestCandidate.center);
 
-      if (Number.isFinite(tipY)) {
+      if (fingertip) {
         fingertipEstimated = true;
-        cv.circle(debug, new cv.Point(tipX, tipY), 7, new cv.Scalar(239, 68, 68, 255), -1);
+        cv.circle(debug, new cv.Point(fingertip.x, fingertip.y), 7, new cv.Scalar(239, 68, 68, 255), -1);
 
         // Convert camera coordinates to viewport coordinates for the virtual cursor.
-        const viewportPoint = {
-          x: cameraPointToViewport({ x: tipX, y: tipY }).x,
-          y: cameraPointToViewport({ x: tipX, y: tipY }).y,
-        };
+        const viewportPoint = cameraPointToViewport(fingertip);
 
         smoothedPointsRef.current = [...smoothedPointsRef.current, viewportPoint].slice(
           -HAND_DETECTION.smoothingWindow,
