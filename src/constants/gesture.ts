@@ -14,6 +14,8 @@ export const HAND_DETECTION = {
   minMotionRatio: 0.012,
   trackingMaxDistance: 120,
   lockMaxDistance: 82,
+  maxRegisteredAreaRatio: 2.15,
+  maxRegisteredBoxRatio: 1.9,
   registrationBox: {
     xRatio: 0.62,
     yRatio: 0.26,

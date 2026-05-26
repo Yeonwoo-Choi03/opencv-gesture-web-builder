@@ -36,6 +36,8 @@ interface CvRuntime {
   gray: any;
   prevGray: any;
   backgroundGray: any;
+  backgroundSkinMask: any;
+  backgroundSkinInverseMask: any;
   backgroundDelta: any;
   foregroundMask: any;
   foregroundSkinMask: any;
@@ -56,6 +58,8 @@ interface CvRuntime {
 
 interface RegisteredHandProfile {
   area: number;
+  width: number;
+  height: number;
   aspectRatio: number;
   extent: number;
   solidity: number;
@@ -211,6 +215,8 @@ function getContourProfile(
 
   return {
     area,
+    width: rect.width,
+    height: rect.height,
     aspectRatio: rect.width / Math.max(1, rect.height),
     extent: area / Math.max(1, rect.width * rect.height),
     solidity: area / Math.max(1, hullArea),
@@ -375,6 +381,8 @@ export function useOpenCvHandTracking() {
       gray: new cv.Mat(),
       prevGray: new cv.Mat(),
       backgroundGray: new cv.Mat(),
+      backgroundSkinMask: new cv.Mat(CAMERA_HEIGHT, CAMERA_WIDTH, cv.CV_8UC1),
+      backgroundSkinInverseMask: new cv.Mat(CAMERA_HEIGHT, CAMERA_WIDTH, cv.CV_8UC1),
       backgroundDelta: new cv.Mat(),
       foregroundMask: new cv.Mat(CAMERA_HEIGHT, CAMERA_WIDTH, cv.CV_8UC1),
       foregroundSkinMask: new cv.Mat(CAMERA_HEIGHT, CAMERA_WIDTH, cv.CV_8UC1),
@@ -477,6 +485,8 @@ export function useOpenCvHandTracking() {
       const remainingMs = Math.max(0, HAND_DETECTION.backgroundCalibrationMs - phaseElapsed);
       if (phaseElapsed >= HAND_DETECTION.backgroundCalibrationMs) {
         runtime.gray.copyTo(runtime.backgroundGray);
+        runtime.cleanedMask.copyTo(runtime.backgroundSkinMask);
+        cv.dilate(runtime.backgroundSkinMask, runtime.backgroundSkinMask, runtime.kernel);
         backgroundReadyRef.current = true;
         enterPhase('hand-registration');
       }
@@ -522,6 +532,10 @@ export function useOpenCvHandTracking() {
       cv.morphologyEx(runtime.foregroundMask, runtime.foregroundMask, cv.MORPH_OPEN, runtime.kernel);
       cv.dilate(runtime.foregroundMask, runtime.foregroundMask, runtime.kernel);
       cv.bitwise_and(runtime.cleanedMask, runtime.foregroundMask, runtime.foregroundSkinMask);
+      if (registeredHandRef.current && runtime.backgroundSkinMask.rows > 0) {
+        cv.bitwise_not(runtime.backgroundSkinMask, runtime.backgroundSkinInverseMask);
+        cv.bitwise_and(runtime.foregroundSkinMask, runtime.backgroundSkinInverseMask, runtime.foregroundSkinMask);
+      }
     } else {
       runtime.cleanedMask.copyTo(runtime.foregroundSkinMask);
     }
@@ -579,11 +593,24 @@ export function useOpenCvHandTracking() {
       const profile = getContourProfile(cv, contour, area, rect, runtime.ycrcb, runtime.hsv);
       const registrationScore = profileSimilarity(registeredHandRef.current, profile);
       const headPenalty = getHeadPenalty(cv, contour, area, rect, registeredHandRef.current);
+      const registeredHand = registeredHandRef.current;
+      const isOversizedRegisteredCandidate = Boolean(
+        phase === 'tracking' &&
+          registeredHand &&
+          (area > registeredHand.area * HAND_DETECTION.maxRegisteredAreaRatio ||
+            rect.width > registeredHand.width * HAND_DETECTION.maxRegisteredBoxRatio ||
+            rect.height > registeredHand.height * HAND_DETECTION.maxRegisteredBoxRatio),
+      );
       if (
         phase === 'tracking' &&
         isHeadLikeContour(cv, contour, area, rect) &&
         (!registeredHandRef.current || registrationScore < 0.1)
       ) {
+        contour.delete();
+        continue;
+      }
+
+      if (isOversizedRegisteredCandidate && registrationScore < 1.15) {
         contour.delete();
         continue;
       }
@@ -697,6 +724,8 @@ export function useOpenCvHandTracking() {
         const samples = registrationSamplesRef.current;
         registeredHandRef.current = {
           area: samples.reduce((sum, sample) => sum + sample.area, 0) / samples.length,
+          width: samples.reduce((sum, sample) => sum + sample.width, 0) / samples.length,
+          height: samples.reduce((sum, sample) => sum + sample.height, 0) / samples.length,
           aspectRatio: samples.reduce((sum, sample) => sum + sample.aspectRatio, 0) / samples.length,
           extent: samples.reduce((sum, sample) => sum + sample.extent, 0) / samples.length,
           solidity: samples.reduce((sum, sample) => sum + sample.solidity, 0) / samples.length,
