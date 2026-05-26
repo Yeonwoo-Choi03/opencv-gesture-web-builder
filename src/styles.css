@@ -50,7 +50,7 @@ a {
 
 .canvas-done-button {
   position: absolute;
-  right: 48px;
+  left: 48px;
   top: 48px;
   z-index: 20;
   box-shadow: 0 12px 24px rgba(22, 163, 74, 0.22);
