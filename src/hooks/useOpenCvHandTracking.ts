@@ -62,17 +62,18 @@ export const DEFAULT_SKIN_THRESHOLDS: SkinThresholdConfig = {
 };
 
 const MARKER = {
-  minArea: 55,
+  minArea: 18,
+  maxArea: 2200,
   clickDistance: 58,
   resizeMinDistance: 36,
   smoothingWindow: 5,
   noMarkerGraceMs: 300,
   redRanges: [
-    { lower: [0, 90, 70, 0], upper: [10, 255, 255, 255] },
-    { lower: [170, 90, 70, 0], upper: [179, 255, 255, 255] },
+    { lower: [0, 135, 105, 0], upper: [8, 255, 255, 255] },
+    { lower: [172, 135, 105, 0], upper: [179, 255, 255, 255] },
   ],
-  blueRanges: [{ lower: [92, 80, 55, 0], upper: [132, 255, 255, 255] }],
-  greenRanges: [{ lower: [42, 70, 55, 0], upper: [88, 255, 255, 255] }],
+  blueRanges: [{ lower: [98, 125, 90, 0], upper: [126, 255, 255, 255] }],
+  greenRanges: [{ lower: [48, 105, 80, 0], upper: [82, 255, 255, 255] }],
 } as const;
 
 function loadOpenCv() {
@@ -152,7 +153,7 @@ function findLargestMarker(cv: any, runtime: CvRuntime, ranges: readonly { lower
   for (let i = 0; i < runtime.contours.size(); i += 1) {
     const contour = runtime.contours.get(i);
     const area = cv.contourArea(contour);
-    if (area >= MARKER.minArea && (!best || area > best.area)) {
+    if (area >= MARKER.minArea && area <= MARKER.maxArea && (!best || area > best.area)) {
       const rect = cv.boundingRect(contour);
       best = {
         area,
