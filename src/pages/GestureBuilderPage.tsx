@@ -75,6 +75,7 @@ export function GestureBuilderPage() {
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const [elements, setElements] = useState<BuilderElement[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [typingId, setTypingId] = useState<string | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [resizingId, setResizingId] = useState<string | null>(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
@@ -129,6 +130,12 @@ export function GestureBuilderPage() {
   }, [elements.length]);
 
   const updateText = useCallback((key: string) => {
+    if (key === 'Done') {
+      setTypingId(null);
+      setGestureState('Typing done');
+      return;
+    }
+
     setElements((current) =>
       current.map((element) => {
         if (element.id !== selectedId || element.type !== 'text') return element;
@@ -309,6 +316,7 @@ export function GestureBuilderPage() {
         const local = viewportToLocal(cursor, canvasRect);
         setSelectedId(element.id);
         bringElementToFront(element.id);
+        setTypingId(element.type === 'text' ? element.id : null);
         if (resizeMode) {
           setDraggingId(null);
           setResizingId(null);
@@ -619,6 +627,10 @@ export function GestureBuilderPage() {
                 }}
               />
             )}
+            <VirtualKeyboard
+              visible={!finalMode && selectedElement?.type === 'text' && typingId === selectedElement.id}
+              value={selectedElement?.type === 'text' ? selectedElement.text : ''}
+            />
           </div>
 
           {!finalMode && selectedElement?.type === 'text' && (
@@ -631,7 +643,6 @@ export function GestureBuilderPage() {
               />
             </label>
           )}
-          <VirtualKeyboard visible={!finalMode && selectedElement?.type === 'text'} />
         </section>
 
         {!finalMode && (
