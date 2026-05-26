@@ -214,6 +214,20 @@ function isHeadLikeContour(cv: any, contour: any, area: number, rect: any) {
   );
 }
 
+function getHeadPenalty(cv: any, contour: any, area: number, rect: any, registeredHand: RegisteredHandProfile | null) {
+  const profile = getContourProfile(cv, contour, area, rect);
+  const centerY = rect.y + rect.height / 2;
+  const areaRatioToHand = registeredHand ? area / Math.max(1, registeredHand.area) : 1;
+  const isUpperFrame = centerY <= CAMERA_HEIGHT * HAND_DETECTION.headReject.upperFrameRatio;
+  const isCompactBlob = profile.solidity >= HAND_DETECTION.headReject.minSolidity && profile.extent >= 0.5;
+  const isLargeComparedToHand = registeredHand ? areaRatioToHand >= 1.45 : area >= HAND_DETECTION.headReject.minArea;
+
+  if (!isUpperFrame || !isCompactBlob || !isLargeComparedToHand) return 0;
+
+  // Faces are usually compact upper-frame blobs; hands with fingers are less solid and more irregular.
+  return 9000 + Math.min(8000, areaRatioToHand * 2500);
+}
+
 export function useOpenCvHandTracking() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const maskCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -436,7 +450,7 @@ export function useOpenCvHandTracking() {
       runtime.foregroundSkinMask.copyTo(runtime.candidateMask);
       keepOnlyRegistrationBox(cv, runtime.candidateMask, registrationBox);
     } else if (registeredHandRef.current) {
-      runtime.cleanedMask.copyTo(runtime.candidateMask);
+      runtime.foregroundSkinMask.copyTo(runtime.candidateMask);
     } else {
       runtime.foregroundSkinMask.copyTo(runtime.candidateMask);
     }
@@ -455,6 +469,7 @@ export function useOpenCvHandTracking() {
       const rect = cv.boundingRect(contour);
       const profile = getContourProfile(cv, contour, area, rect);
       const registrationScore = profileSimilarity(registeredHandRef.current, profile);
+      const headPenalty = getHeadPenalty(cv, contour, area, rect, registeredHandRef.current);
       if (
         phase === 'tracking' &&
         isHeadLikeContour(cv, contour, area, rect) &&
@@ -505,9 +520,10 @@ export function useOpenCvHandTracking() {
         motionRatio * 9000 +
         foregroundRatio * 7000 +
         registrationScore * 2500 +
-        area * 0.02 +
+        Math.min(area, HAND_DETECTION.maxContourArea * 0.55) * 0.02 +
         registrationBoxScore -
-        (lastHand ? distFromLast * 8 : 0);
+        (lastHand ? distFromLast * 8 : 0) -
+        headPenalty;
       candidates.push({ contour, score, center, area });
     }
 
